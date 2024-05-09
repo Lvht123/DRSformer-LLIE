@@ -1,10 +1,8 @@
 experiments/
-hrseg/
-pretrained_models/
 tb_logger/
 Datasets/
 figs/
+pretrained_model/
 evaluations/
 models2/
 test/
-basicsr.egg-info/
