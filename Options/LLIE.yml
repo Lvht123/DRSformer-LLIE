@@ -1,5 +1,5 @@
 # general settings
-name: structure
+name: tprior
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1

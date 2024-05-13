@@ -5,6 +5,9 @@ from pdb import set_trace as stx
 import numbers
 from basicsr.models.SAG import Discriminator , FullGenerator
 from basicsr.models.SGEM import GlobalGenerator3
+from hrseg.hrseg_model import create_hrnet
+from basicsr.models.Fuse_Block import Fuse_TransformerBlock,Fuse_TransformerBlock_1
+
 import cv2
 import numpy as np
 from PIL import Image
@@ -519,6 +522,10 @@ class DRSformer(nn.Module):
 
         self.output = nn.Conv2d(int(dim * 2 ** 1), out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
 
+        self.att_block_1 = Fuse_TransformerBlock(48,64)
+        self.att_block_2 = Fuse_TransformerBlock(96,32)
+        self.att_block_3 = Fuse_TransformerBlock(192,32)
+
     def forward(self, inp_img):
         # global seg_map
         # _ , inp_prior = self.illumination_prior(inp_img)
@@ -530,71 +537,72 @@ class DRSformer(nn.Module):
 
 		# to_path = self.target_paths[index]
 		# to_im = cv2.imread(to_path)
-        images_list = torch.split(inp_img, 1, dim=0)
-        processed_images_list = []
-        for image in images_list:
-            to_im = image[0]
-            to_im = to_im.cpu()
-            to_im = np.array(to_im)
-            # print(to_im.shape)
-            to_im = to_im.transpose(1,2,0)
-            # print(to_im.shape)
-            to_im = cv2.cvtColor(to_im,cv2.COLOR_RGB2BGR)
-            # print(to_im.shape)
-            to_im_gray = cv2.cvtColor(to_im, cv2.COLOR_BGR2GRAY)
-            # print(to_im_gray.shape)
-            sketch = cv2.GaussianBlur(to_im_gray, (3, 3), 0)
-            # print(sketch.shape)
-            v = np.median(sketch)
-            sigma = 0.33    
-            lower = int(max(0, (1.0 - sigma) * v))
-            upper = int(min(255, (1.0 + sigma) * v))
-            sketch = sketch.astype(np.uint8)
-            sketch = cv2.Canny(sketch, lower, upper)
+        # images_list = torch.split(inp_img, 1, dim=0)
+        # processed_images_list = []
+        # for image in images_list:
+        #     to_im = image[0]
+        #     to_im = to_im.cpu()
+        #     to_im = np.array(to_im)
+        #     # print(to_im.shape)
+        #     to_im = to_im.transpose(1,2,0)
+        #     # print(to_im.shape)
+        #     to_im = cv2.cvtColor(to_im,cv2.COLOR_RGB2BGR)
+        #     # print(to_im.shape)
+        #     to_im_gray = cv2.cvtColor(to_im, cv2.COLOR_BGR2GRAY)
+        #     # print(to_im_gray.shape)
+        #     sketch = cv2.GaussianBlur(to_im_gray, (3, 3), 0)
+        #     # print(sketch.shape)
+        #     v = np.median(sketch)
+        #     sigma = 0.33    
+        #     lower = int(max(0, (1.0 - sigma) * v))
+        #     upper = int(min(255, (1.0 + sigma) * v))
+        #     sketch = sketch.astype(np.uint8)
+        #     sketch = cv2.Canny(sketch, lower, upper)
 
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-            sketch = cv2.dilate(sketch, kernel)
+        #     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        #     sketch = cv2.dilate(sketch, kernel)
 
-            sketch = np.expand_dims(sketch, axis=-1)
-            sketch = np.concatenate([sketch, sketch, sketch], axis=-1)
-            assert len(np.unique(sketch)) == 2 or len(np.unique(sketch)) == 1
-            to_im = to_im[:, :, [2,1,0]]
-            to_im = to_im.astype(np.uint8)
-            to_im = Image.fromarray(to_im)
-            # print(sketch.shape)(128,128,3)
-            # if self.target_transform:
-            # to_im = self.target_transform(to_im)
-            # if self.source_transform:
-            # from_im = self.source_transform(from_im)
-            # if self.train:
-            # 	if random.randint(0, 1):
-            to_im = np.array(to_im)
-            to_im = cv2.flip(to_im, 2)
-            # from_im = cv2.flip(from_im, 2)
-            sketch = cv2.flip(sketch, 1)
-            to_im=(to_im+1)*0.5
-            # from_im=(from_im+1)*0.5
+        #     sketch = np.expand_dims(sketch, axis=-1)
+        #     sketch = np.concatenate([sketch, sketch, sketch], axis=-1)
+        #     assert len(np.unique(sketch)) == 2 or len(np.unique(sketch)) == 1
+        #     to_im = to_im[:, :, [2,1,0]]
+        #     to_im = to_im.astype(np.uint8)
+        #     to_im = Image.fromarray(to_im)
+        #     # print(sketch.shape)(128,128,3)
+        #     # if self.target_transform:
+        #     # to_im = self.target_transform(to_im)
+        #     # if self.source_transform:
+        #     # from_im = self.source_transform(from_im)
+        #     # if self.train:
+        #     # 	if random.randint(0, 1):
+        #     to_im = np.array(to_im)
+        #     to_im = cv2.flip(to_im, 2)
+        #     # from_im = cv2.flip(from_im, 2)
+        #     sketch = cv2.flip(sketch, 1)
+        #     to_im=(to_im+1)*0.5
+        #     # from_im=(from_im+1)*0.5
 
-            height = to_im.shape[1]
-            width = to_im.shape[2]
-            sketch[sketch == 255] = 1
-            # print(sketch.shape)
-            sketch = sketch.transpose(2,0,1)
-            # print(sketch.shape)
-            # sketch = cv2.resize(sketch, (width, height))
-            # print(sketch.shape)
-            sketch = torch.from_numpy(sketch)
-            sketch = sketch.cuda()
-            # print(sketch.shape)
-            sketch = sketch[0:1, :, :]
-            sketch = sketch.long()
-            processed_images_list.append(sketch)
-            # print(sketch.shape)
-        sketch = torch.stack(processed_images_list, dim=0)
-        sketch = sketch.float()
+        #     height = to_im.shape[1]
+        #     width = to_im.shape[2]
+        #     sketch[sketch == 255] = 1
+        #     # print(sketch.shape)
+        #     sketch = sketch.transpose(2,0,1)
+        #     # print(sketch.shape)
+        #     # sketch = cv2.resize(sketch, (width, height))
+        #     # print(sketch.shape)
+        #     sketch = torch.from_numpy(sketch)
+        #     sketch = sketch.cuda()
+        #     # print(sketch.shape)
+        #     sketch = sketch[0:1, :, :]
+        #     sketch = sketch.long()
+        #     processed_images_list.append(sketch)
+        #     # print(sketch.shape)
+        # sketch = torch.stack(processed_images_list, dim=0)
+        # sketch = sketch.float()
         # print(sketch.shape)
 
-
+        seg_model = create_hrnet().cuda()
+        _ , seg_feature = seg_model(inp_img[:,0:3,:,:].cuda())
         
         inp_enc_level1 = self.patch_embed(inp_img)
         inp_enc_level0 = self.encoder_level0(inp_enc_level1) ## We do not use MEFC for training Rain200L and SPA-Data
@@ -613,7 +621,7 @@ class DRSformer(nn.Module):
         inp_dec_level3 = torch.cat([inp_dec_level3, out_enc_level3], 1)
         # inp_dec_level3 = self.att_block_1(inp_dec_level3,seg_feature[0])
         inp_dec_level3 = self.reduce_chan_level3(inp_dec_level3)
-        # inp_dec_level3 = self.att_block_1(inp_dec_level3,seg_feature[0])
+        inp_dec_level3 = self.att_block_1(inp_dec_level3,seg_feature[0])
         out_dec_level3 = self.decoder_level3(inp_dec_level3)
 
         inp_dec_level2 = self.up3_2(out_dec_level3)
@@ -621,12 +629,12 @@ class DRSformer(nn.Module):
         # inp_dec_level2 = self.att_block_2(inp_dec_level2,seg_feature[1])
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
 
-        # inp_dec_level2 = self.att_block_2(inp_dec_level2,seg_feature[1])
+        inp_dec_level2 = self.att_block_2(inp_dec_level2,seg_feature[1])
         out_dec_level2 = self.decoder_level2(inp_dec_level2)
 
         inp_dec_level1 = self.up2_1(out_dec_level2)
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 1)
-        # inp_dec_level1 = self.att_block_3(inp_dec_level1,seg_feature[2])
+        inp_dec_level1 = self.att_block_3(inp_dec_level1,seg_feature[2])
         out_dec_level1 = self.decoder_level1(inp_dec_level1)
 
         out_dec_level1 = self.refinement(out_dec_level1) ## We do not use MEFC for training Rain200L and SPA-Data
@@ -653,7 +661,7 @@ class DRSformer(nn.Module):
 
         fake_pred = self.discri(y_hat_sketch)
         # print(y_hat.shape)
-        return y_hat , y_hat_inter , y_hat_sketch , sketch , fake_pred
+        return y_hat , y_hat_inter , y_hat_sketch ,  fake_pred
 
 if __name__ == '__main__':
     input = torch.rand(1, 3, 256, 256)

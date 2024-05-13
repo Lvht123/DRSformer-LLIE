@@ -169,7 +169,7 @@ class ImageCleanModel(BaseModel):
 
     def optimize_parameters(self, current_iter):
         self.optimizer_g.zero_grad()
-        preds , preds_inter , preds_sketch ,sketch ,fake_pred = self.net_g(self.lq)
+        preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(self.lq)
         if not isinstance(preds, list):
             preds = [preds]
 
@@ -183,7 +183,7 @@ class ImageCleanModel(BaseModel):
         rec_loss = 0.
         # ext_loss = 0.
         lpips_loss = 0.
-        edge_loss = 0. 
+        # edge_loss = 0. 
         discri_loss=0.
         # print(len(preds))
         for pred in preds:
@@ -191,12 +191,12 @@ class ImageCleanModel(BaseModel):
             lpips_loss = self.lpips_loss(self.gt,pred) + self.lpips_loss(self.gt,preds_inter)
             # print('pred', pred.shape)
             # print('preds', preds.shape)
-            edge_loss = cross_entropy_loss_RCF(preds_sketch,sketch,1.1)*5
+            # edge_loss = cross_entropy_loss_RCF(preds_sketch,sketch,1.1)*5
             discri_loss = F.softplus(-fake_pred).mean()
             # ext_loss= self.cri_pix(pred, self.gt)+0.1*self.CR_loss(pred,self.gt,self.lq)
             # l_pix += self.cri_pix(pred, self.gt)
 
-        l_pix = rec_loss + 0.8*lpips_loss + edge_loss + discri_loss
+        l_pix = rec_loss + 0.8*lpips_loss  + discri_loss
         loss_dict['l_pix'] = l_pix
 
         l_pix.backward()
@@ -228,14 +228,14 @@ class ImageCleanModel(BaseModel):
         if hasattr(self, 'net_g_ema'):
             self.net_g_ema.eval()
             with torch.no_grad():
-                preds , preds_inter , preds_sketch ,sketch ,fake_pred = self.net_g_ema(img)
+                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g_ema(img)
             if isinstance(preds, list):
                 pred = preds[-1]
             self.output = preds
         else:
             self.net_g.eval()
             with torch.no_grad():
-                preds , preds_inter , preds_sketch ,sketch ,fake_pred = self.net_g(img)
+                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(img)
             if isinstance(preds, list):
                 pred = preds[-1]
             self.output = preds
