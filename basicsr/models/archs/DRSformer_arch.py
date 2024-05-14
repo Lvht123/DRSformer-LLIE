@@ -128,28 +128,6 @@ class Attention(nn.Module):
         qkv = self.qkv_dwconv(self.qkv(x))
         q, k, v = qkv.chunk(3, dim=1)
 
-        # conv_layer1 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(4,4), stride=2 ,padding=1)
-        # conv_layer1 = conv_layer1.cuda()
-        # conv_layer2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(4,4), stride=2 ,padding=1)
-        # conv_layer2 = conv_layer2.cuda()
-        # conv_layer3 = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=(4,4), stride=2 ,padding=1)
-        # conv_layer3 = conv_layer3.cuda()
-        # conv_layer4 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(1,1), stride=1 ,padding=0)
-        # conv_layer4 = conv_layer4.cuda()
-        # # inp_feature1 = conv_layer1(inp_feature)
-        # if self.num_heads==1 and v.shape[1]==16:
-        #     illumination_feature = illumination_feature
-        # elif self.num_heads==1 and v.shape[1]==32:
-        #     illumination_feature = conv_layer4(illumination_feature) 
-        # elif self.num_heads==2:
-        #     illumination_feature = conv_layer1(illumination_feature)
-        # elif self.num_heads==4:
-        #     illumination_feature = conv_layer1(illumination_feature)
-        #     illumination_feature = conv_layer2(illumination_feature)
-        # elif self.num_heads==8:
-        #     illumination_feature = conv_layer1(illumination_feature)
-        #     illumination_feature = conv_layer2(illumination_feature)
-        #     illumination_feature = conv_layer3(illumination_feature)
 
 
         # print('illushape:{}'.format(illumination_feature.shape))
@@ -531,76 +509,6 @@ class DRSformer(nn.Module):
         # _ , inp_prior = self.illumination_prior(inp_img)
         # inp_img = inp_img*inp_prior+inp_img
 
-        # from_im = cv2.imread(from_path)
-        # from_im = from_im[:, :, [2,1,0]]
-		# from_im = Image.fromarray(from_im)
-
-		# to_path = self.target_paths[index]
-		# to_im = cv2.imread(to_path)
-        # images_list = torch.split(inp_img, 1, dim=0)
-        # processed_images_list = []
-        # for image in images_list:
-        #     to_im = image[0]
-        #     to_im = to_im.cpu()
-        #     to_im = np.array(to_im)
-        #     # print(to_im.shape)
-        #     to_im = to_im.transpose(1,2,0)
-        #     # print(to_im.shape)
-        #     to_im = cv2.cvtColor(to_im,cv2.COLOR_RGB2BGR)
-        #     # print(to_im.shape)
-        #     to_im_gray = cv2.cvtColor(to_im, cv2.COLOR_BGR2GRAY)
-        #     # print(to_im_gray.shape)
-        #     sketch = cv2.GaussianBlur(to_im_gray, (3, 3), 0)
-        #     # print(sketch.shape)
-        #     v = np.median(sketch)
-        #     sigma = 0.33    
-        #     lower = int(max(0, (1.0 - sigma) * v))
-        #     upper = int(min(255, (1.0 + sigma) * v))
-        #     sketch = sketch.astype(np.uint8)
-        #     sketch = cv2.Canny(sketch, lower, upper)
-
-        #     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        #     sketch = cv2.dilate(sketch, kernel)
-
-        #     sketch = np.expand_dims(sketch, axis=-1)
-        #     sketch = np.concatenate([sketch, sketch, sketch], axis=-1)
-        #     assert len(np.unique(sketch)) == 2 or len(np.unique(sketch)) == 1
-        #     to_im = to_im[:, :, [2,1,0]]
-        #     to_im = to_im.astype(np.uint8)
-        #     to_im = Image.fromarray(to_im)
-        #     # print(sketch.shape)(128,128,3)
-        #     # if self.target_transform:
-        #     # to_im = self.target_transform(to_im)
-        #     # if self.source_transform:
-        #     # from_im = self.source_transform(from_im)
-        #     # if self.train:
-        #     # 	if random.randint(0, 1):
-        #     to_im = np.array(to_im)
-        #     to_im = cv2.flip(to_im, 2)
-        #     # from_im = cv2.flip(from_im, 2)
-        #     sketch = cv2.flip(sketch, 1)
-        #     to_im=(to_im+1)*0.5
-        #     # from_im=(from_im+1)*0.5
-
-        #     height = to_im.shape[1]
-        #     width = to_im.shape[2]
-        #     sketch[sketch == 255] = 1
-        #     # print(sketch.shape)
-        #     sketch = sketch.transpose(2,0,1)
-        #     # print(sketch.shape)
-        #     # sketch = cv2.resize(sketch, (width, height))
-        #     # print(sketch.shape)
-        #     sketch = torch.from_numpy(sketch)
-        #     sketch = sketch.cuda()
-        #     # print(sketch.shape)
-        #     sketch = sketch[0:1, :, :]
-        #     sketch = sketch.long()
-        #     processed_images_list.append(sketch)
-        #     # print(sketch.shape)
-        # sketch = torch.stack(processed_images_list, dim=0)
-        # sketch = sketch.float()
-        # print(sketch.shape)
-
         seg_model = create_hrnet().cuda()
         _ , seg_feature = seg_model(inp_img[:,0:3,:,:].cuda())
         
@@ -619,14 +527,14 @@ class DRSformer(nn.Module):
 
         inp_dec_level3 = self.up4_3(latent)
         inp_dec_level3 = torch.cat([inp_dec_level3, out_enc_level3], 1)
-        # inp_dec_level3 = self.att_block_1(inp_dec_level3,seg_feature[0])
+
         inp_dec_level3 = self.reduce_chan_level3(inp_dec_level3)
         inp_dec_level3 = self.att_block_1(inp_dec_level3,seg_feature[0])
         out_dec_level3 = self.decoder_level3(inp_dec_level3)
 
         inp_dec_level2 = self.up3_2(out_dec_level3)
         inp_dec_level2 = torch.cat([inp_dec_level2, out_enc_level2], 1)
-        # inp_dec_level2 = self.att_block_2(inp_dec_level2,seg_feature[1])
+
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
 
         inp_dec_level2 = self.att_block_2(inp_dec_level2,seg_feature[1])
