@@ -1,5 +1,5 @@
 # general settings
-name: tprior
+name: structure_losswo_rcf_cr1
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1
@@ -10,8 +10,8 @@ datasets:
   train:
     name: TrainSet
     type: Dataset_PairedImage
-    dataroot_gt: D:\dataset\LOLv2\Synthetic\Train\Normal
-    dataroot_lq: D:\dataset\LOLv2\Synthetic\Train\Low
+    dataroot_gt: /media/lht/disk/dataset/LOLv2/Synthetic/Train/Normal
+    dataroot_lq: /media/lht/disk/dataset/LOLv2/Synthetic/Train/Low
     geometric_augs: true
 
     filename_tmpl: '{}'
@@ -24,7 +24,7 @@ datasets:
     batch_size_per_gpu: 8
 
     ### ------- Training on single fixed-patch size 128x128---------
-    mini_batch_sizes: [4]   
+    mini_batch_sizes: [1]   
     iters: [300000]
     gt_size: 128
     gt_sizes: [128]
@@ -36,8 +36,8 @@ datasets:
   val:
     name: ValSet
     type: Dataset_PairedImage
-    dataroot_gt: D:\dataset\LOLv2\Synthetic\Test\Normal
-    dataroot_lq: D:\dataset\LOLv2\Synthetic\Test\Low
+    dataroot_gt: /media/lht/disk/dataset/LOLv2/Synthetic/Test/Normal
+    dataroot_lq: /media/lht/disk/dataset/LOLv2/Synthetic/Test/Low
     io_backend:
       type: disk
 
@@ -82,7 +82,7 @@ train:
 
   optim_g:
     type: AdamW
-    lr: !!float 2e-4
+    lr: !!float 3e-4
     weight_decay: !!float 1e-4
     betas: [0.9, 0.999]
   
@@ -123,6 +123,6 @@ logger:
     resume_id: ~
 
 # dist training settings
-# dist_params:
-#   backend: nccl
-#   port: 29500
+dist_params:
+  backend: nccl
+  port: 29500
