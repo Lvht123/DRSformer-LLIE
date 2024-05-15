@@ -21,7 +21,7 @@ import logging
 # logging.getLogger('').addHandler(console)
 def create_hrnet():
     args = {}
-    args['cfg'] = './hrseg/hrseg_lib/pascal_ctx/seg_hrnet_w48_cls59_480x480_sgd_lr4e-3_wd1e-4_bs_16_epoch200.yaml'
+    args['cfg'] = '/media/lht/disk/LLIE-lht/DRSformer-LLIE/hrseg/hrseg_lib/pascal_ctx/seg_hrnet_w48_cls59_480x480_sgd_lr4e-3_wd1e-4_bs_16_epoch200.yaml'
     args['opt'] = []
     update_config(config, args)
     if torch.__version__.startswith('1'):
@@ -43,7 +43,7 @@ def create_hrnet():
     #     model_state_file = os.path.join(final_output_dir, 'final_state.pth')
     # logger.info('=> loading model from {}'.format(model_state_file))
 
-    pretrained_dict = torch.load('./hrseg/hrnet_w48_pascal_context_cls59_480x480.pth')
+    pretrained_dict = torch.load('/media/lht/disk/LLIE-lht/DRSformer-LLIE/hrseg/hrnet_w48_pascal_context_cls59_480x480.pth')
     if 'state_dict' in pretrained_dict:
         pretrained_dict = pretrained_dict['state_dict']
     model_dict = model.state_dict()

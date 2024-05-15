@@ -1,5 +1,5 @@
 # general settings
-name: structure_losswo_rcf_cr1
+name: structure_sem
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1
@@ -24,7 +24,7 @@ datasets:
     batch_size_per_gpu: 8
 
     ### ------- Training on single fixed-patch size 128x128---------
-    mini_batch_sizes: [1]   
+    mini_batch_sizes: [4]   
     iters: [300000]
     gt_size: 128
     gt_sizes: [128]

@@ -16,7 +16,7 @@ DATASET:
   NUM_CLASSES: 59
 MODEL:
   NAME: seg_hrnet
-  PRETRAINED: 'pretrained_models/hrnet_w48_pascal_context_cls59_480x480.pth'
+  PRETRAINED: '/media/lht/disk/LLIE-lht/DRSformer-LLIE/hrseg/hrnet_w48_pascal_context_cls59_480x480.pth'
   EXTRA:
     FINAL_CONV_KERNEL: 1
     STAGE1:
