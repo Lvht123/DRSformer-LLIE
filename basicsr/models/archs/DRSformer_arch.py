@@ -504,13 +504,13 @@ class DRSformer(nn.Module):
         self.att_block_2 = Fuse_TransformerBlock(96,32)
         self.att_block_3 = Fuse_TransformerBlock(192,32)
 
-    def forward(self, inp_img):
+    def forward(self, inp_img ,seg_feature):
         # global seg_map
         # _ , inp_prior = self.illumination_prior(inp_img)
         # inp_img = inp_img*inp_prior+inp_img
 
-        seg_model = create_hrnet().cuda()
-        _ , seg_feature = seg_model(inp_img[:,0:3,:,:].cuda())
+        # seg_model = create_hrnet().cuda()
+        # _ , seg_feature = seg_model(inp_img[:,0:3,:,:].cuda())
         
         inp_enc_level1 = self.patch_embed(inp_img)
         inp_enc_level0 = self.encoder_level0(inp_enc_level1) ## We do not use MEFC for training Rain200L and SPA-Data

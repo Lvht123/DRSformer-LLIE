@@ -5,6 +5,7 @@ from collections import OrderedDict
 from copy import deepcopy
 from os import path as osp
 from tqdm import tqdm
+from hrseg.hrseg_model import create_hrnet
 # from basicsr.models.archs.DRSformer_arch import getsegmap
 from basicsr.models.archs import define_network
 from basicsr.models.base_model import BaseModel
@@ -77,6 +78,7 @@ class ImageCleanModel(BaseModel):
 
         self.net_g = define_network(deepcopy(opt['network_g']))
         self.net_g = self.model_to_device(self.net_g)
+        self.seg_model = create_hrnet().cuda()
         self.print_network(self.net_g)
 
         # load pretrained models
@@ -169,7 +171,8 @@ class ImageCleanModel(BaseModel):
 
     def optimize_parameters(self, current_iter):
         self.optimizer_g.zero_grad()
-        preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(self.lq)
+        _ , seg_feature = self.seg_model(self.lq[:,0:3,:,:].cuda())
+        preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(self.lq , seg_feature)
         if not isinstance(preds, list):
             preds = [preds]
 
@@ -218,24 +221,25 @@ class ImageCleanModel(BaseModel):
         if w % window_size != 0:
             mod_pad_w = window_size - w % window_size
         img = F.pad(self.lq, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        self.nonpad_test(img)
+        _ , seg_feature = self.seg_model(img[:,0:3,:,:].cuda())
+        self.nonpad_test(img,seg_feature)
         _, _, h, w = self.output.size()
         self.output = self.output[:, :, 0:h - mod_pad_h * scale, 0:w - mod_pad_w * scale]
 
-    def nonpad_test(self, img=None):
+    def nonpad_test(self, img=None ,seg_feature=None):
         if img is None:
             img = self.lq      
         if hasattr(self, 'net_g_ema'):
             self.net_g_ema.eval()
             with torch.no_grad():
-                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g_ema(img)
+                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g_ema(img ,seg_feature)
             if isinstance(preds, list):
                 pred = preds[-1]
             self.output = preds
         else:
             self.net_g.eval()
             with torch.no_grad():
-                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(img)
+                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(img , seg_feature)
             if isinstance(preds, list):
                 pred = preds[-1]
             self.output = preds
