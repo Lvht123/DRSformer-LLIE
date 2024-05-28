@@ -977,6 +977,8 @@ class LeWinTransformerBlock(nn.Module):
 
         shortcut = x
         x = self.norm1(x)
+        # print(type(x))
+        # print(x.shape)
         x = x.view(B, H, W, C)
 
         # cyclic shift

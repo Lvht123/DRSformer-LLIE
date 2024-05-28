@@ -7,7 +7,8 @@ from basicsr.models.SAG import Discriminator , FullGenerator
 from basicsr.models.SGEM import GlobalGenerator3
 from hrseg.hrseg_model import create_hrnet
 from basicsr.models.Fuse_Block import Fuse_TransformerBlock,Fuse_TransformerBlock_1
-
+from basicsr.pidinet_models.pidinet import PiDiNet
+from basicsr.pidinet_models.config import config_model
 import cv2
 import numpy as np
 from PIL import Image
@@ -450,9 +451,10 @@ class DRSformer(nn.Module):
         # self.illumination_prior = Illumination_Estimator(middle_channels)
         self.discri =  Discriminator(size=128, channel_multiplier=2,
                 narrow=0.25, device='cuda').cuda()
-        
-        self.SAG = FullGenerator(128, 32, 8,
-                                 channel_multiplier=2, narrow=0.25, device='cuda').cuda()
+        pdcs = config_model(model = "carv4")
+        self.Pidinet = PiDiNet(60,pdcs,dil=24,sa=True)
+        # self.SAG = FullGenerator(256, 32, 8,
+        #                          channel_multiplier=2, narrow=0.25, device='cuda').cuda()
         self.SGEM = GlobalGenerator3(6, 3, 16, 1).cuda() ## structure-guided enhancement
 
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
@@ -500,11 +502,11 @@ class DRSformer(nn.Module):
 
         self.output = nn.Conv2d(int(dim * 2 ** 1), out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
 
-        self.att_block_1 = Fuse_TransformerBlock(48,64)
-        self.att_block_2 = Fuse_TransformerBlock(96,32)
-        self.att_block_3 = Fuse_TransformerBlock(192,32)
+        # self.att_block_1 = Fuse_TransformerBlock(48,64)
+        # self.att_block_2 = Fuse_TransformerBlock(96,32)
+        # self.att_block_3 = Fuse_TransformerBlock(192,32)
 
-    def forward(self, inp_img ,seg_feature):
+    def forward(self, inp_img ):
         # global seg_map
         # _ , inp_prior = self.illumination_prior(inp_img)
         # inp_img = inp_img*inp_prior+inp_img
@@ -529,7 +531,7 @@ class DRSformer(nn.Module):
         inp_dec_level3 = torch.cat([inp_dec_level3, out_enc_level3], 1)
 
         inp_dec_level3 = self.reduce_chan_level3(inp_dec_level3)
-        inp_dec_level3 = self.att_block_1(inp_dec_level3,seg_feature[0])
+        # inp_dec_level3 = self.att_block_1(inp_dec_level3,seg_feature[0])
         out_dec_level3 = self.decoder_level3(inp_dec_level3)
 
         inp_dec_level2 = self.up3_2(out_dec_level3)
@@ -537,12 +539,12 @@ class DRSformer(nn.Module):
 
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
 
-        inp_dec_level2 = self.att_block_2(inp_dec_level2,seg_feature[1])
+        # inp_dec_level2 = self.att_block_2(inp_dec_level2,seg_feature[1])
         out_dec_level2 = self.decoder_level2(inp_dec_level2)
 
         inp_dec_level1 = self.up2_1(out_dec_level2)
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 1)
-        inp_dec_level1 = self.att_block_3(inp_dec_level1,seg_feature[2])
+        # inp_dec_level1 = self.att_block_3(inp_dec_level1,seg_feature[2])
         out_dec_level1 = self.decoder_level1(inp_dec_level1)
 
         out_dec_level1 = self.refinement(out_dec_level1) ## We do not use MEFC for training Rain200L and SPA-Data
@@ -558,11 +560,15 @@ class DRSformer(nn.Module):
         y_hat_inter = torch.clamp(y_hat_inter, min=0.0, max=1.0)
 
 
-        input_gray = inp_img[:, 0:1, :, :] * 0.299 + inp_img[:, 1:2, :, :] * 0.587 + inp_img[:, 2:3, :, :] * 0.114
-        # print(input_gray.shape)
-        y_hat_sketch, latent = self.SAG(input_gray, return_latents=True)
+        # input_gray = inp_img[:, 0:1, :, :] * 0.299 + inp_img[:, 1:2, :, :] * 0.587 + inp_img[:, 2:3, :, :] * 0.114
+        # print('gray',input_gray.shape)
+        # y_hat_sketch, latent = self.SAG(input_gray, return_latents=True)
+        y_hat_sketch = self.Pidinet(inp_img)
+        # print('y_hat',y_hat_sketch.shape)
+        # print(inp_img.shape)
 
         input_variable = torch.cat([y_hat_inter, inp_img], dim=1)
+        # print(input_variable.shape)
         y_hat = self.SGEM(input_variable, y_hat_sketch)
         y_hat = y_hat + y_hat_inter
         y_hat = torch.clamp(y_hat, min=0.0, max=1.0)

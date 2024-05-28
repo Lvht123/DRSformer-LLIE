@@ -1036,8 +1036,8 @@ class FullGenerator(nn.Module):
             count += 1
         self.final_linear = nn.Sequential(
             EqualLinear(channels[4] * 4 * 4, style_dim, activation='fused_lrelu', device=device))
-        self.conv384 = ConvLayer2(8, 8, 3, downsample=True, device=device)
-        self.norm384 = nn.InstanceNorm2d(8)
+        # self.conv384 = ConvLayer2(8, 8, 3, downsample=True, device=device)
+        # self.norm384 = nn.InstanceNorm2d(8)
                     
     def forward(self,
                 inputs,
@@ -1064,13 +1064,17 @@ class FullGenerator(nn.Module):
                 ecd = getattr(self, self.names[i])
                 inputs = ecd(inputs)
                 noise.append(inputs)
-                if inputs.shape[3] == 384:
-                    inputs = self.conv384(inputs)
-                    inputs = self.norm384(inputs)
-        
+                # print(inputs.shape)
+                # if inputs.shape[0] == 1:
+                #     inputs = F.interpolate(inputs, size=(256, 256))
+        # print(type(inputs))
+        # print('over',inputs.shape)
+        # inputs = F.interpolate(inputs, size=(4, 4))
+        # print('over',inputs.shape)
         inputs = inputs.view(inputs.shape[0], -1)
         # print('over',inputs.shape)
         outs = self.final_linear(inputs)
+        # print(outs.shape)
         noise = list(itertools.chain.from_iterable(itertools.repeat(x, 2) for x in noise))[::-1]
         noise[-1] = None
         noise[-2] = None
@@ -1122,6 +1126,7 @@ class Discriminator(nn.Module):
         )
 
     def forward(self, input):
+        input = F.interpolate(input, size=(128, 128))
         out = self.convs(input)
 
         batch, channel, height, width = out.shape

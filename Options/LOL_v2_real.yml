@@ -1,5 +1,5 @@
 # general settings
-name: tprior
+name: interpolate_real_256_seed100
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1
@@ -24,10 +24,10 @@ datasets:
     batch_size_per_gpu: 8
 
     ### ------- Training on single fixed-patch size 128x128---------
-    mini_batch_sizes: [4]   
+    mini_batch_sizes: [2]   
     iters: [300000]
-    gt_size: 128
-    gt_sizes: [128]s
+    gt_size: 256
+    gt_sizes: [256]
     ### ------------------------------------------------------------
 
     dataset_enlarge_ratio: 1
@@ -82,7 +82,7 @@ train:
 
   optim_g:
     type: AdamW
-    lr: !!float 2e-4
+    lr: !!float 3e-4
     weight_decay: !!float 1e-4
     betas: [0.9, 0.999]
   

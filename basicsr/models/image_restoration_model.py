@@ -78,7 +78,7 @@ class ImageCleanModel(BaseModel):
 
         self.net_g = define_network(deepcopy(opt['network_g']))
         self.net_g = self.model_to_device(self.net_g)
-        self.seg_model = create_hrnet().cuda()
+        # self.seg_model = create_hrnet().cuda()
         self.print_network(self.net_g)
 
         # load pretrained models
@@ -171,8 +171,8 @@ class ImageCleanModel(BaseModel):
 
     def optimize_parameters(self, current_iter):
         self.optimizer_g.zero_grad()
-        _ , seg_feature = self.seg_model(self.lq[:,0:3,:,:].cuda())
-        preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(self.lq , seg_feature)
+        # _ , seg_feature = self.seg_model(self.lq[:,0:3,:,:].cuda())
+        preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(self.lq )
         if not isinstance(preds, list):
             preds = [preds]
 
@@ -197,9 +197,9 @@ class ImageCleanModel(BaseModel):
             # edge_loss = cross_entropy_loss_RCF(preds_sketch,sketch,1.1)*5
             discri_loss = F.softplus(-fake_pred).mean()
             # ext_loss= self.cri_pix(pred, self.gt)+0.1*self.CR_loss(pred,self.gt,self.lq)
-            # l_pix += self.cri_pix(pred, self.gt)
+            # l_pix = 10*self.cri_pix(pred, self.gt) + self.cri_pix(preds_inter,self.gt)
 
-        l_pix = rec_loss + 0.8*lpips_loss  + discri_loss
+        l_pix = rec_loss + 0.8*lpips_loss + discri_loss
         loss_dict['l_pix'] = l_pix
 
         l_pix.backward()
@@ -220,26 +220,29 @@ class ImageCleanModel(BaseModel):
             mod_pad_h = window_size - h % window_size
         if w % window_size != 0:
             mod_pad_w = window_size - w % window_size
+        # print(self.lq.shape)
         img = F.pad(self.lq, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        _ , seg_feature = self.seg_model(img[:,0:3,:,:].cuda())
-        self.nonpad_test(img,seg_feature)
+        # print(img.shape)
+        # _ , seg_feature = self.seg_model(img[:,0:3,:,:].cuda())
+        self.nonpad_test(img)
         _, _, h, w = self.output.size()
         self.output = self.output[:, :, 0:h - mod_pad_h * scale, 0:w - mod_pad_w * scale]
+        # print(self.output.shape)
 
-    def nonpad_test(self, img=None ,seg_feature=None):
+    def nonpad_test(self, img=None ):
         if img is None:
             img = self.lq      
         if hasattr(self, 'net_g_ema'):
             self.net_g_ema.eval()
             with torch.no_grad():
-                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g_ema(img ,seg_feature)
+                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g_ema(img )
             if isinstance(preds, list):
                 pred = preds[-1]
             self.output = preds
         else:
             self.net_g.eval()
             with torch.no_grad():
-                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(img , seg_feature)
+                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(img )
             if isinstance(preds, list):
                 pred = preds[-1]
             self.output = preds

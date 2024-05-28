@@ -1,5 +1,5 @@
 # general settings
-name: structure_sem
+name: pidinet_reshape_discri
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1
@@ -9,6 +9,7 @@ manual_seed: 666
 datasets:
   train:
     name: TrainSet
+    # size: 128
     type: Dataset_PairedImage
     dataroot_gt: /media/lht/disk/dataset/LOLv2/Synthetic/Train/Normal
     dataroot_lq: /media/lht/disk/dataset/LOLv2/Synthetic/Train/Low
