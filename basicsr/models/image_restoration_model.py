@@ -19,8 +19,11 @@ import os
 import random
 import numpy as np
 import cv2
+import random
+from PIL import Image
 import torch.nn.functional as F
 from functools import partial
+import matplotlib.pyplot as plt
 
 class Mixing_Augment:
     def __init__(self, mixup_beta, use_identity, device):
@@ -61,7 +64,47 @@ def cross_entropy_loss_RCF(prediction, labelf, beta):
     mask[label == 2] = 0
     cost = F.binary_cross_entropy(prediction, labelf, weight=mask, reduction='mean')
     return cost
+def flip(x, dim):
+	indices = [slice(None)] * x.dim()
+	indices[dim] = torch.arange(x.size(dim) - 1, -1, -1, dtype=torch.long, device=x.device)
+	return x[tuple(indices)]
+def get_sketch(img):   
+    imgs = torch.unbind(img, dim=0)
+    sketch_list = []
+    for i ,img in enumerate(imgs):
+        img = img.permute(1,2,0)
+        to_im = img.cpu().numpy()
+        to_im_gray = cv2.cvtColor(to_im, cv2.COLOR_BGR2GRAY)
+        sketch = cv2.GaussianBlur(to_im_gray, (3, 3), 0)
+ 
+        v = np.median(sketch)
+        sigma = 0.33
+        lower = int(max(0, (1.0 - sigma) * v))
+        upper = int(min(255, (1.0 + sigma) * v))
+        sketch = sketch.astype(np.uint8)
+        sketch = cv2.Canny(sketch, lower, upper)
 
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        sketch = cv2.dilate(sketch, kernel)
+
+        sketch = np.expand_dims(sketch, axis=-1)
+        sketch = np.concatenate([sketch, sketch, sketch], axis=-1)
+        assert len(np.unique(sketch)) == 2 or len(np.unique(sketch)) == 1
+        to_im = to_im[:, :, [2,1,0]]
+        to_im = to_im.astype(np.uint8)
+        to_im = Image.fromarray(to_im)
+        to_im = np.array(to_im)
+        to_im=(to_im+1)*0.5
+        height = to_im.shape[0]
+        width = to_im.shape[1]
+        sketch[sketch == 255] = 1
+        sketch = cv2.resize(sketch, (width, height))
+        sketch = torch.from_numpy(sketch).permute(2, 0, 1)
+        sketch = sketch[0:1, :, :]
+        sketch = sketch.long()
+        sketch_list.append(sketch)
+    sketch = torch.stack(sketch_list).float()
+    return sketch
 class ImageCleanModel(BaseModel):
     """Base Deblur model for single image deblur."""
 
@@ -172,10 +215,11 @@ class ImageCleanModel(BaseModel):
     def optimize_parameters(self, current_iter):
         self.optimizer_g.zero_grad()
         # _ , seg_feature = self.seg_model(self.lq[:,0:3,:,:].cuda())
-        preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(self.lq )
+        preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(self.lq)
         if not isinstance(preds, list):
             preds = [preds]
-
+        sketch = get_sketch(self.gt)
+        sketch = sketch.to(self.device) 
         self.output = preds[-1]
         # self.seg_map = getsegmap()
         
@@ -184,9 +228,9 @@ class ImageCleanModel(BaseModel):
         # pixel loss
         l_pix = 0.
         rec_loss = 0.
-        # ext_loss = 0.
+        ext_loss = 0.
         lpips_loss = 0.
-        # edge_loss = 0. 
+        edge_loss = 0. 
         discri_loss=0.
         # print(len(preds))
         for pred in preds:
@@ -194,12 +238,12 @@ class ImageCleanModel(BaseModel):
             lpips_loss = self.lpips_loss(self.gt,pred) + self.lpips_loss(self.gt,preds_inter)
             # print('pred', pred.shape)
             # print('preds', preds.shape)
-            # edge_loss = cross_entropy_loss_RCF(preds_sketch,sketch,1.1)*5
+            edge_loss = cross_entropy_loss_RCF(preds_sketch,sketch,1.1)*5
             discri_loss = F.softplus(-fake_pred).mean()
-            # ext_loss= self.cri_pix(pred, self.gt)+0.1*self.CR_loss(pred,self.gt,self.lq)
+            ext_loss= 0.1*self.CR_loss(pred,self.gt,self.lq)
             # l_pix = 10*self.cri_pix(pred, self.gt) + self.cri_pix(preds_inter,self.gt)
 
-        l_pix = rec_loss + 0.8*lpips_loss + discri_loss
+        l_pix = rec_loss + 0.8*lpips_loss + discri_loss +edge_loss + ext_loss
         loss_dict['l_pix'] = l_pix
 
         l_pix.backward()

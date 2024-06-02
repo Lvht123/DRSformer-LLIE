@@ -1,5 +1,5 @@
 # general settings
-name: pidinet_reshape_discri
+name: test
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1

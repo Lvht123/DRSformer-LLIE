@@ -450,7 +450,7 @@ class DRSformer(nn.Module):
 
         # self.illumination_prior = Illumination_Estimator(middle_channels)
         self.discri =  Discriminator(size=128, channel_multiplier=2,
-                narrow=0.25, device='cuda').cuda()
+                narrow=0.5, device='cuda').cuda()
         pdcs = config_model(model = "carv4")
         self.Pidinet = PiDiNet(60,pdcs,dil=24,sa=True)
         # self.SAG = FullGenerator(256, 32, 8,
