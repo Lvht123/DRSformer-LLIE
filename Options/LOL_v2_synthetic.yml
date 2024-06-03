@@ -1,5 +1,5 @@
 # general settings
-name: sem-smg
+name: PIDINET_cr0.1_edge
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1

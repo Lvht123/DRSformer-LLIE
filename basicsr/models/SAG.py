@@ -1065,8 +1065,8 @@ class FullGenerator(nn.Module):
                 inputs = ecd(inputs)
                 noise.append(inputs)
                 # print(inputs.shape)
-                # if inputs.shape[0] == 1:
-                #     inputs = F.interpolate(inputs, size=(256, 256))
+                if inputs.shape[0] == 1:
+                    inputs = F.interpolate(inputs, size=(128, 128))
         # print(type(inputs))
         # print('over',inputs.shape)
         # inputs = F.interpolate(inputs, size=(4, 4))

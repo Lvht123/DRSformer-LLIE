@@ -449,12 +449,12 @@ class DRSformer(nn.Module):
         super(DRSformer, self).__init__()
 
         # self.illumination_prior = Illumination_Estimator(middle_channels)
-        self.discri =  Discriminator(size=128, channel_multiplier=2,
+        self.discri = Discriminator(size=128, channel_multiplier=2,
                 narrow=0.5, device='cuda').cuda()
-        # pdcs = config_model(model = "carv4")
-        # self.Pidinet = PiDiNet(60,pdcs,dil=24,sa=True)
-        self.SAG = FullGenerator(128, 32, 8,
-                                 channel_multiplier=2, narrow=0.25, device='cuda').cuda()
+        pdcs = config_model(model = "carv4")
+        self.Pidinet = PiDiNet(60,pdcs,dil=24,sa=True)
+        # self.SAG = FullGenerator(128, 32, 8,
+        #                          channel_multiplier=2, narrow=0.25, device='cuda').cuda()
         self.SGEM = GlobalGenerator3(6, 3, 16, 1).cuda() ## structure-guided enhancement
         # self.seg_model =  create_hrnet().cuda()
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)

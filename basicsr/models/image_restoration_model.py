@@ -228,7 +228,7 @@ class ImageCleanModel(BaseModel):
         # pixel loss
         l_pix = 0.
         rec_loss = 0.
-        # ext_loss = 0.
+        cr_loss = 0.
         lpips_loss = 0.
         edge_loss = 0. 
         discri_loss=0.
@@ -240,10 +240,10 @@ class ImageCleanModel(BaseModel):
             # print('preds', preds.shape)
             edge_loss = cross_entropy_loss_RCF(preds_sketch,sketch,1.1)*5
             discri_loss = F.softplus(-fake_pred).mean()
-            # ext_loss= 0.1*self.CR_loss(pred,self.gt,self.lq)
+            cr_loss = 0.1*self.CR_loss(pred,self.gt,self.lq)
             # l_pix = 10*self.cri_pix(pred, self.gt) + self.cri_pix(preds_inter,self.gt)
 
-        l_pix = rec_loss + 0.8*lpips_loss + discri_loss +edge_loss 
+        l_pix = rec_loss + 0.8*lpips_loss + discri_loss + edge_loss + cr_loss
         loss_dict['l_pix'] = l_pix
 
         l_pix.backward()
