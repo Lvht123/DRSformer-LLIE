@@ -451,12 +451,12 @@ class DRSformer(nn.Module):
         # self.illumination_prior = Illumination_Estimator(middle_channels)
         self.discri =  Discriminator(size=128, channel_multiplier=2,
                 narrow=0.5, device='cuda').cuda()
-        pdcs = config_model(model = "carv4")
-        self.Pidinet = PiDiNet(60,pdcs,dil=24,sa=True)
-        # self.SAG = FullGenerator(256, 32, 8,
-        #                          channel_multiplier=2, narrow=0.25, device='cuda').cuda()
+        # pdcs = config_model(model = "carv4")
+        # self.Pidinet = PiDiNet(60,pdcs,dil=24,sa=True)
+        self.SAG = FullGenerator(128, 32, 8,
+                                 channel_multiplier=2, narrow=0.25, device='cuda').cuda()
         self.SGEM = GlobalGenerator3(6, 3, 16, 1).cuda() ## structure-guided enhancement
-
+        # self.seg_model =  create_hrnet().cuda()
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
         
         self.encoder_level0 = subnet(dim)  ## We do not use MEFC for training Rain200L and SPA-Data
@@ -512,7 +512,7 @@ class DRSformer(nn.Module):
         # inp_img = inp_img*inp_prior+inp_img
 
         # seg_model = create_hrnet().cuda()
-        # _ , seg_feature = seg_model(inp_img[:,0:3,:,:].cuda())
+        # _ , seg_feature = self.seg_model(inp_img[:,0:3,:,:].cuda())
         
         inp_enc_level1 = self.patch_embed(inp_img)
         inp_enc_level0 = self.encoder_level0(inp_enc_level1) ## We do not use MEFC for training Rain200L and SPA-Data

@@ -3,7 +3,7 @@ import torch.nn as nn
 import functools
 import torch.nn.functional as F
 import numpy as np
-
+from basicsr.models.Fuse_Block import Fuse_TransformerBlock,Fuse_TransformerBlock_1
 class SPADE(nn.Module):
     def __init__(self, param_free_norm_type, ks, norm_nc, label_nc):
         super().__init__()
@@ -189,6 +189,10 @@ class GlobalGenerator3(nn.Module):
         self.pixel_shuffle = nn.PixelShuffle(2)
         self.reset_params()
 
+        # self.att_block_1 = Fuse_TransformerBlock(48,32)
+        # self.att_block_2 = Fuse_TransformerBlock(96,16)
+        # self.att_block_3 = Fuse_TransformerBlock(192,32)
+
     @staticmethod
     def weight_init(m, init_type='kaiming', gain=0.02, scale=0.1):
         classname = m.__class__.__name__
@@ -227,6 +231,10 @@ class GlobalGenerator3(nn.Module):
         height = feature.shape[2]
         width = feature.shape[3]
         sketch2 = F.interpolate(sketch, size=(height, width))
+
+
+        # feature = self.att_block_1(feature,seg_feature[0])
+
         sketch_feature = self.conv1_1(sketch2)
         kernel_deblur = self.fac_deblur1(sketch_feature)
 
@@ -244,6 +252,11 @@ class GlobalGenerator3(nn.Module):
         height = feature.shape[2]
         width = feature.shape[3]
         sketch2 = F.interpolate(sketch, size=(height, width))
+        # print(feature.shape)([4, 16, 128, 128])
+        # print(seg_feature[1].shape)([4, 96, 16, 16])
+        # feature = self.att_block_2(feature,seg_feature[1])
+
+
         sketch_feature = self.conv2_1(sketch2)
         kernel_deblur = self.fac_deblur2(sketch_feature)
 
@@ -253,6 +266,9 @@ class GlobalGenerator3(nn.Module):
         feature_edge = nn.ReLU(True)(feature_edge)
         feature = feature + feature_edge
         feature = torch.cat([feature, feature1], dim=1)
+        # print(feature.shape)
+        # print(seg_feature[2].shape)
+        # feature = self.att_block_3(feature,seg_feature[2])
 
         return self.model_tail(feature)
 
