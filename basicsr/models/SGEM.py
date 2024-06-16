@@ -3,7 +3,7 @@ import torch.nn as nn
 import functools
 import torch.nn.functional as F
 import numpy as np
-from basicsr.models.Fuse_Block import Fuse_TransformerBlock,Fuse_TransformerBlock_1
+# from basicsr.models.Fuse_Block import Fuse_TransformerBlock,Fuse_TransformerBlock_1
 class SPADE(nn.Module):
     def __init__(self, param_free_norm_type, ks, norm_nc, label_nc):
         super().__init__()

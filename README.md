@@ -53,7 +53,7 @@ Run the script then you can find the generated experimental logs in the folder `
 2. Note that we do not use MEFC for training Rain200L and SPA-Data, because their rain streaks are less complex and easier to learn. Please modify the file `DRSformer_arch.py`. See the file `DRSformer_arch_200L+SPA.py`.
 3. Follow the instructions below to begin testing our model.
 ```
-python3 test_from_dataset.py --opt Options/your.yml --weights pretrained_weights/your.pth --dataset LOL_v2_synthetic --GT_mean
+python3 test_from_dataset.py --opt Options/your.yml --weights pretrained_models/your.pth --dataset LOL_v2_synthetic --GT_mean
 ```
 Run the script then you can find the output visual results in the folder `test/output/`.
 

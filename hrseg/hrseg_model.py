@@ -54,6 +54,8 @@ def create_hrnet():
     #         '=> loading {} from pretrained model'.format(k))
     model_dict.update(pretrained_dict)
     model.load_state_dict(model_dict)
+    for param in model.parameters():
+        param.requires_grad = False
     # print('HRNet load')
     return model
 # model = model.cuda()

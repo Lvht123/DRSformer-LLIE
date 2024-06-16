@@ -1,5 +1,5 @@
 # general settings
-name: Enhancement_RetinexFormer_SDSD_indoor
+name: _DSD_indoor
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1  # set num_gpu: 0 for cpu mode
@@ -13,8 +13,8 @@ datasets:
     # interval_list: [1]
     random_reverse: false
     border_mode: false
-    dataroot_gt: data/SDSD/indoor_static_np/GT
-    dataroot_lq: data/SDSD/indoor_static_np/input
+    dataroot_gt: /media/lht/disk/dataset/SDSD/indoor_np/GT
+    dataroot_lq: /media/lht/disk/dataset/SDSD/indoor_np/input
     train_size: [960, 512]
     cache_keys: ~
     cache_data: true
@@ -56,8 +56,8 @@ datasets:
   val:
     name: ValSet
     type: Dataset_SDSDImage
-    dataroot_gt: data/SDSD/indoor_static_np/GT
-    dataroot_lq: data/SDSD/indoor_static_np/input
+    dataroot_gt: /media/lht/disk/dataset/SDSD/indoor_np/GT
+    dataroot_lq: /media/lht/disk/dataset/SDSD/indoor_np/input
     cache_data: true
     N_frames: 5
     padding: new_info

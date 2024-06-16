@@ -9,7 +9,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch.autograd import Function
 
-from models.op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
+from basicsr.models.op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
 
 class PixelNorm(nn.Module):
     def __init__(self):
@@ -668,7 +668,7 @@ class ResBlock(nn.Module):
 
         return out
 
-from models.transformer import BasicUformerLayer, Downsample, InputProj, OutputProj
+from basicsr.models.transformer import BasicUformerLayer, Downsample, InputProj, OutputProj
 
 class Encoder_block(nn.Module):
     def __init__(self, in_channel, out_channel, img_size,

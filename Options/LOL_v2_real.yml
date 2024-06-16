@@ -1,5 +1,5 @@
 # general settings
-name: pidinet_real_edgeloss_crloss
+name: PIDINET_sem
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1
@@ -95,7 +95,7 @@ train:
 # validation settings
 val:
   window_size: 8
-  val_freq: !!float 1e3
+  val_freq: !!float 6e2
   save_img: false
   rgb2bgr: true
   use_image: true
@@ -116,7 +116,7 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 1e3
+  save_checkpoint_freq: !!float 1e8
   use_tb_logger: true
   wandb:
     project: ~

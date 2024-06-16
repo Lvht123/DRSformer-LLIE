@@ -156,9 +156,10 @@ class BaseModel():
         net = self.get_bare_model(net)
         net_str = str(net)
         net_params = sum(map(lambda x: x.numel(), net.parameters()))
+        trainable_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
 
         logger.info(
-            f'Network: {net_cls_str}, with parameters: {net_params:,d}')
+            f'Network: {net_cls_str}, with parameters: {net_params:,d},trainable parameters:{trainable_params:,d}')
         logger.info(net_str)
 
     def _set_lr(self, lr_groups_l):

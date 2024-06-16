@@ -1,5 +1,5 @@
 # general settings
-name: PIDINET_cr0.1_edge
+name: pidinet_drsformer_encblock
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1
@@ -116,7 +116,7 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 1e3
+  save_checkpoint_freq: !!float 1e10
   use_tb_logger: true
   wandb:
     project: ~

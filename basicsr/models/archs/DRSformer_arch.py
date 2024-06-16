@@ -5,8 +5,8 @@ from pdb import set_trace as stx
 import numbers
 from basicsr.models.SAG import Discriminator , FullGenerator
 from basicsr.models.SGEM import GlobalGenerator3
-from hrseg.hrseg_model import create_hrnet
-from basicsr.models.Fuse_Block import Fuse_TransformerBlock,Fuse_TransformerBlock_1
+# from hrseg.hrseg_model import create_hrnet
+# from basicsr.models.Fuse_Block import Fuse_TransformerBlock,Fuse_TransformerBlock_1
 from basicsr.pidinet_models.pidinet import PiDiNet
 from basicsr.pidinet_models.config import config_model
 import cv2
@@ -238,7 +238,54 @@ class GroupOLs(nn.Module):
             s0 = self._ops[i](s0, weights[:, i, :])
             s0 = self.relu(s0 + res)
         return s0
+def mean_channels(F):
+    assert(F.dim() == 4)
+    spatial_sum = F.sum(3, keepdim=True).sum(2, keepdim=True)
+    return spatial_sum / (F.size(2) * F.size(3))
 
+def stdv_channels(F):
+    assert(F.dim() == 4)
+    F_mean = mean_channels(F)
+    F_variance = (F - F_mean).pow(2).sum(3, keepdim=True).sum(2, keepdim=True) / (F.size(2) * F.size(3))
+    return F_variance.pow(0.5)
+
+class AttING(nn.Module):
+    def __init__(self, in_channels, channels):
+        super(AttING, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv2_1 = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2_2 = nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.instance = nn.InstanceNorm2d(channels, affine=True)
+        self.interative = nn.Sequential(
+            nn.Conv2d(channels*2, channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.LeakyReLU(0.1),
+            nn.Sigmoid()
+        )
+        self.act = nn.LeakyReLU(0.1)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.contrast = stdv_channels
+        self.process = nn.Sequential(nn.Conv2d(channels*2, channels//2, kernel_size=3, padding=1, bias=True),
+                                     nn.LeakyReLU(0.1),
+                                     nn.Conv2d(channels//2, channels*2, kernel_size=3, padding=1, bias=True),
+                                     nn.Sigmoid())
+        self.conv1x1 = nn.Conv2d(2*channels, channels, 1, 1, 0)
+
+    def forward(self, x):
+        x1 = self.conv1(x)
+        out_instance = self.instance(x1)
+        out_identity = x1
+        out1 = self.conv2_1(out_instance)
+        out2 = self.conv2_2(out_identity)
+        out = torch.cat((out1, out2), 1)
+        xp1 = self.interative(out)*out2 + out1
+        xp2 = (1-self.interative(out))*out1 + out2
+        xp = torch.cat((xp1, xp2), 1)
+        xp = self.process(self.contrast(xp)+self.avgpool(xp))*xp
+        xp = self.conv1x1(xp)
+        xout = xp
+
+        return xout
+    
 class OALayer(nn.Module):
     def __init__(self, channel, k, num_ops):
         super(OALayer, self).__init__()
@@ -447,14 +494,20 @@ class DRSformer(nn.Module):
                  ):
 
         super(DRSformer, self).__init__()
-
+        self.enc_block1 = AttING(32,32)
+        self.enc_block2 = AttING(64,64)
+        # self.enc_block3 = AttING(6,16)
+        self.enc_block4 = AttING(64,64)
+        self.enc_block5 = AttING(32,32)
+        self.enc_block6 = AttING(32,32)
+        
         # self.illumination_prior = Illumination_Estimator(middle_channels)
         self.discri = Discriminator(size=128, channel_multiplier=2,
                 narrow=0.5, device='cuda').cuda()
         pdcs = config_model(model = "carv4")
         self.Pidinet = PiDiNet(60,pdcs,dil=24,sa=True)
         # self.SAG = FullGenerator(128, 32, 8,
-        #                          channel_multiplier=2, narrow=0.25, device='cuda').cuda()
+                                #  channel_multiplier=2, narrow=0.25, device='cuda').cuda()
         self.SGEM = GlobalGenerator3(6, 3, 16, 1).cuda() ## structure-guided enhancement
         # self.seg_model =  create_hrnet().cuda()
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
@@ -517,14 +570,20 @@ class DRSformer(nn.Module):
         inp_enc_level1 = self.patch_embed(inp_img)
         inp_enc_level0 = self.encoder_level0(inp_enc_level1) ## We do not use MEFC for training Rain200L and SPA-Data
         out_enc_level1 = self.encoder_level1(inp_enc_level0)  
+        
 
         inp_enc_level2 = self.down1_2(out_enc_level1)
+
+        inp_enc_level2 = self.enc_block1(inp_enc_level2)#enc1
         out_enc_level2 = self.encoder_level2(inp_enc_level2)
 
         inp_enc_level3 = self.down2_3(out_enc_level2)
+
+        inp_enc_level3 = self.enc_block2(inp_enc_level3)#enc2
         out_enc_level3 = self.encoder_level3(inp_enc_level3)
 
         inp_enc_level4 = self.down3_4(out_enc_level3)
+        # inp_enc_level4 = self.enc_block3(inp_enc_level4)#enc3
         latent = self.latent(inp_enc_level4)
 
         inp_dec_level3 = self.up4_3(latent)
@@ -532,6 +591,7 @@ class DRSformer(nn.Module):
 
         inp_dec_level3 = self.reduce_chan_level3(inp_dec_level3)
         # inp_dec_level3 = self.att_block_1(inp_dec_level3,seg_feature[0])
+        inp_dec_level3 = self.enc_block4(inp_dec_level3)#enc4
         out_dec_level3 = self.decoder_level3(inp_dec_level3)
 
         inp_dec_level2 = self.up3_2(out_dec_level3)
@@ -540,10 +600,12 @@ class DRSformer(nn.Module):
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
 
         # inp_dec_level2 = self.att_block_2(inp_dec_level2,seg_feature[1])
+        inp_dec_level2 = self.enc_block5(inp_dec_level2)#enc5
         out_dec_level2 = self.decoder_level2(inp_dec_level2)
 
         inp_dec_level1 = self.up2_1(out_dec_level2)
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 1)
+        inp_dec_level1 = self.enc_block6(inp_dec_level1)#enc6
         # inp_dec_level1 = self.att_block_3(inp_dec_level1,seg_feature[2])
         out_dec_level1 = self.decoder_level1(inp_dec_level1)
 

@@ -279,14 +279,14 @@ class ImageCleanModel(BaseModel):
         if hasattr(self, 'net_g_ema'):
             self.net_g_ema.eval()
             with torch.no_grad():
-                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g_ema(img )
+                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g_ema(img)
             if isinstance(preds, list):
                 pred = preds[-1]
             self.output = preds
         else:
             self.net_g.eval()
             with torch.no_grad():
-                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(img )
+                preds , preds_inter , preds_sketch  ,fake_pred = self.net_g(img)
             if isinstance(preds, list):
                 pred = preds[-1]
             self.output = preds
