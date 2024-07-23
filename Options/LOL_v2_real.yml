@@ -1,5 +1,5 @@
 # general settings
-name: PIDINET_sem
+name: real_pidinet_0.01colorhist
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1
@@ -116,7 +116,7 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 1e8
+  save_checkpoint_freq: !!float 3e3
   use_tb_logger: true
   wandb:
     project: ~

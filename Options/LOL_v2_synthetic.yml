@@ -1,5 +1,5 @@
 # general settings
-name: pidinet_drsformer_encblock
+name: enc_syn_pidinet_drsformer
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1
@@ -116,7 +116,7 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 1e10
+  save_checkpoint_freq: !!float 5e3
   use_tb_logger: true
   wandb:
     project: ~

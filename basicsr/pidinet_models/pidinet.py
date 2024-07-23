@@ -34,7 +34,39 @@ class CSAM(nn.Module):
         y = self.sigmoid(y)
 
         return x * y
+# class CSAM(nn.Module):
+#     def __init__(self, channels):
+#         super(CSAM, self).__init__()
+#         self.project_in = nn.Conv2d(channels, channels * 2, kernel_size=1)
 
+#         self.dwconv3x3 = nn.Conv2d(channels * 2, channels * 2, kernel_size=3, stride=1, padding=1, groups=channels * 2)
+#         self.dwconv5x5 = nn.Conv2d(channels * 2, channels * 2, kernel_size=5, stride=1, padding=2, groups=channels * 2)
+#         self.relu3 = nn.ReLU()
+#         self.relu5 = nn.ReLU()
+
+#         self.dwconv3x3_1 = nn.Conv2d(channels * 2, channels, kernel_size=3, stride=1, padding=1, groups=channels )
+#         self.dwconv5x5_1 = nn.Conv2d(channels * 2, channels, kernel_size=5, stride=1, padding=2, groups=channels )
+
+#         self.relu3_1 = nn.ReLU()
+#         self.relu5_1 = nn.ReLU()
+#         self.project_out = nn.Conv2d(channels * 2, channels, kernel_size=1)
+
+#     def forward(self, x):
+#         x = self.project_in(x)
+#         x1_3, x2_3 = self.relu3(self.dwconv3x3(x)).chunk(2, dim=1)
+#         x1_5, x2_5 = self.relu5(self.dwconv5x5(x)).chunk(2, dim=1)
+
+#         x1 = torch.cat([x1_3, x1_5], dim=1)
+#         x2 = torch.cat([x2_3, x2_5], dim=1)
+
+#         x1 = self.relu3_1(self.dwconv3x3_1(x1))
+#         x2 = self.relu5_1(self.dwconv5x5_1(x2))
+
+#         x = torch.cat([x1, x2], dim=1)
+
+#         x = self.project_out(x)
+
+#         return x
 class CDCM(nn.Module):
     """
     Compact Dilation Convolution based Module

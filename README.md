@@ -49,13 +49,32 @@ bash train.sh
 Run the script then you can find the generated experimental logs in the folder `experiments`.
 
 ## Testing
-1. Please download the corresponding testing datasets and put them in the folder `test/input`. Download the corresponding pre-trained models and put them in the folder `pretrained_models`.
-2. Note that we do not use MEFC for training Rain200L and SPA-Data, because their rain streaks are less complex and easier to learn. Please modify the file `DRSformer_arch.py`. See the file `DRSformer_arch_200L+SPA.py`.
-3. Follow the instructions below to begin testing our model.
+1. Please download the pre-trained models and put them in the folder `pretrained_models`.
+2. Follow the instructions below to begin testing our model.
 ```
-python3 test_from_dataset.py --opt Options/your.yml --weights pretrained_models/your.pth --dataset LOL_v2_synthetic --GT_mean
+#LOL-v1
+python3 test_from_dataset.py --opt Options/LOL_v2_real.yml --weights pretrained_models/LOL_v2_real.pth --dataset LOL_v2_real 
+
+# LOL-v2-real
+python3 test_from_dataset.py --opt Options/LOL_v2_real.yml --weights pretrained_models/LOL_v2_real.pth --dataset LOL_v2_real 
+
+# LOL-v2-synthetic
+python3 test_from_dataset.py --opt Options/LOL-v2-synthetic.yml --weights pretrained_models/LOL-v2-synthetic.pth --dataset LOL-v2-synthetic
+
+# SID
+python3 test_from_dataset.py --opt Options/SID.yml --weights pretrained_models/SID.pth --dataset SID
+
+#SMID
+python3 test_from_dataset.py --opt Options/SMID.yml --weights pretrained_models/SMID.pth --dataset SMID
+
+#SDSD-indoor
+python3 test_from_dataset.py --opt Options/SDSD-indoor.yml --weights pretrained_models/SDSD-indoor.pth --dataset SDSD-indoor
+
+#SDSD-outdoor
+python3 test_from_dataset.py --opt Options/SDSD-outdoor.yml --weights pretrained_models/SDSD-outdoor.pth --dataset SDSD-outdoor
 ```
-Run the script then you can find the output visual results in the folder `test/output/`.
+If you want to get the result with GT_mean,please add --GT_mean at the end of the command
+Run the script then you can find the output visual results in the folder `results/`.
 
 ## Pre-trained Models
 <table>

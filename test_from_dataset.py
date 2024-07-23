@@ -210,7 +210,7 @@ else:
             # print(type(input_))
             # print(input_.shape)
 
-            restored , _ , _ , _ = model_restoration(input_)
+            restored , _ , _ , _,_ = model_restoration(input_)
             # print(type(restored))
             # print(len(restored))
             # Unpad images to original dimensions

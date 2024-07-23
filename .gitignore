@@ -2,7 +2,7 @@ experiments/
 tb_logger/
 Datasets/
 figs/
-pretrained_model/
+pretrained_models/
 evaluations/
 models2/
 test/

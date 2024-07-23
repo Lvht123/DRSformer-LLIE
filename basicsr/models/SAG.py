@@ -999,7 +999,6 @@ class FullGenerator(nn.Module):
             32: int(64 * narrow),
             64: int(32 * channel_multiplier * narrow),
             128: int(16 * channel_multiplier * narrow),
-            # 384: int(16 * channel_multiplier * narrow),
             256: int(8 * channel_multiplier * narrow),
             512: int(4 * channel_multiplier * narrow),
             1024: int(2 * channel_multiplier * narrow),
@@ -1036,8 +1035,6 @@ class FullGenerator(nn.Module):
             count += 1
         self.final_linear = nn.Sequential(
             EqualLinear(channels[4] * 4 * 4, style_dim, activation='fused_lrelu', device=device))
-        # self.conv384 = ConvLayer2(8, 8, 3, downsample=True, device=device)
-        # self.norm384 = nn.InstanceNorm2d(8)
                     
     def forward(self,
                 inputs,
@@ -1052,29 +1049,22 @@ class FullGenerator(nn.Module):
             if i >=1:
                 ecd = getattr(self, self.names[i])
                 ecd2 = getattr(self, self.names2[i])
-                # print('i>1',inputs.shape)
                 inputs1 = ecd(inputs)
                 inputs2 = ecd2(inputs)
                 inputs3 = inputs1 + inputs2
                 noise.append(inputs3)
                 inputs = inputs1
-                # print('i>1',inputs.shape)
             else:
-                # print('i=1',inputs.shape)
                 ecd = getattr(self, self.names[i])
                 inputs = ecd(inputs)
                 noise.append(inputs)
-                # print(inputs.shape)
                 if inputs.shape[0] == 1:
                     inputs = F.interpolate(inputs, size=(128, 128))
-        # print(type(inputs))
-        # print('over',inputs.shape)
-        # inputs = F.interpolate(inputs, size=(4, 4))
-        # print('over',inputs.shape)
+
         inputs = inputs.view(inputs.shape[0], -1)
-        # print('over',inputs.shape)
+
         outs = self.final_linear(inputs)
-        # print(outs.shape)
+
         noise = list(itertools.chain.from_iterable(itertools.repeat(x, 2) for x in noise))[::-1]
         noise[-1] = None
         noise[-2] = None

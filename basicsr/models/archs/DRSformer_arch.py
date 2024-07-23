@@ -13,7 +13,8 @@ import cv2
 import numpy as np
 from PIL import Image
 from einops import rearrange
-
+import ipdb
+import matplotlib.pyplot as plt
 def to_3d(x):
     return rearrange(x, 'b c h w -> b (h w) c')
 
@@ -413,7 +414,126 @@ class subnet(nn.Module):
                 x = layer(x, weights)
 
         return x
+class _NonLocalBlockND(nn.Module):
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample='pool', bn_layer=True):
+        """
+        :param in_channels:
+        :param inter_channels:
+        :param dimension:
+        :param sub_sample: 'pool' or 'bilinear' or False
+        :param bn_layer:
+        """
 
+        super(_NonLocalBlockND, self).__init__()
+
+        assert dimension in [1, 2, 3]
+
+        self.dimension = dimension
+        self.sub_sample = sub_sample
+
+        self.in_channels = in_channels
+        self.inter_channels = inter_channels
+
+        if self.inter_channels is None:
+            self.inter_channels = in_channels // 2
+            if self.inter_channels == 0:
+                self.inter_channels = 1
+
+        if dimension == 3:
+            conv_nd = nn.Conv3d
+            max_pool_layer = nn.MaxPool3d(kernel_size=(1, 2, 2))
+            bn = nn.BatchNorm3d
+        elif dimension == 2:
+            conv_nd = nn.Conv2d
+            if sub_sample == 'pool':
+                max_pool_layer = nn.MaxPool2d(kernel_size=(2, 2))
+            elif sub_sample == 'bilinear':
+                max_pool_layer = nn.UpsamplingBilinear2d([16, 16])
+            else:
+                raise NotImplementedError(f'[ ERR ] Unknown down sample method: {sub_sample}')
+            bn = nn.BatchNorm2d
+        else:
+            conv_nd = nn.Conv1d
+            max_pool_layer = nn.MaxPool1d(kernel_size=(2))
+            bn = nn.BatchNorm1d
+
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels,
+                         kernel_size=1, stride=1, padding=0)
+
+        if bn_layer:
+            self.W = nn.Sequential(
+                conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels,
+                        kernel_size=1, stride=1, padding=0),
+                bn(self.in_channels)
+            )
+            nn.init.constant_(self.W[1].weight, 0)
+            nn.init.constant_(self.W[1].bias, 0)
+        else:
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels,
+                             kernel_size=1, stride=1, padding=0)
+            nn.init.constant_(self.W.weight, 0)
+            nn.init.constant_(self.W.bias, 0)
+
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels,
+                             kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels,
+                           kernel_size=1, stride=1, padding=0)
+
+        if sub_sample:
+            self.g = nn.Sequential(self.g, max_pool_layer)
+            self.phi = nn.Sequential(self.phi, max_pool_layer)
+
+    def forward(self, x, return_nl_map=False):
+        """
+        :param x: (b, c, t, h, w)
+        :param return_nl_map: if True return z, nl_map, else only return z.
+        :return:
+        """
+
+        batch_size = x.size(0)
+
+        g_x = self.g(x).view(batch_size, self.inter_channels, -1)
+        g_x = g_x.permute(0, 2, 1)
+
+        theta_x = self.theta(x).view(batch_size, self.inter_channels, -1)
+        theta_x = theta_x.permute(0, 2, 1)
+        phi_x = self.phi(x).view(batch_size, self.inter_channels, -1)
+        f = torch.matmul(theta_x, phi_x)
+        f_div_C = F.softmax(f, dim=-1)
+
+        y = torch.matmul(f_div_C, g_x)
+        y = y.permute(0, 2, 1).contiguous()
+        y = y.view(batch_size, self.inter_channels, *x.size()[2:])
+        W_y = self.W(y)
+        z = W_y + x
+
+        if return_nl_map:
+            return z, f_div_C
+        return z
+
+
+class NONLocalBlock1D(_NonLocalBlockND):
+    def __init__(self, in_channels, inter_channels=None, sub_sample='pool', bn_layer=True):
+        super(NONLocalBlock1D, self).__init__(in_channels,
+                                              inter_channels=inter_channels,
+                                              dimension=1, sub_sample=sub_sample,
+                                              bn_layer=bn_layer)
+
+
+class NONLocalBlock2D(_NonLocalBlockND):
+    def __init__(self, in_channels, inter_channels=None, sub_sample='pool', bn_layer=True):
+        super(NONLocalBlock2D, self).__init__(in_channels,
+                                              inter_channels=inter_channels,
+                                              dimension=2, sub_sample=sub_sample,
+                                              bn_layer=bn_layer, )
+
+
+class NONLocalBlock3D(_NonLocalBlockND):
+    def __init__(self, in_channels, inter_channels=None, sub_sample='pool', bn_layer=True):
+        super(NONLocalBlock3D, self).__init__(in_channels,
+                                              inter_channels=inter_channels,
+                                              dimension=3, sub_sample=sub_sample,
+                                              bn_layer=bn_layer, )
 class Illumination_Estimator(nn.Module):
     def __init__(
             self, n_fea_middle, n_fea_in=4, n_fea_out=3):  #__init__部分是内部属性，而forward的输入才是外部输入
@@ -433,8 +553,8 @@ class Illumination_Estimator(nn.Module):
         # illu_fea:   b,c,h,w
         # illu_map:   b,c=3,h,w
         
-        # mean_c = img.mean(dim=1).unsqueeze(1)
-        mean_c, _ = img.max(dim=1, keepdim=True)
+        mean_c = img.mean(dim=1).unsqueeze(1)
+        # mean_c, _ = img.max(dim=1, keepdim=True)
 
         # stx()
         input = torch.cat([img,mean_c], dim=1)
@@ -445,6 +565,33 @@ class Illumination_Estimator(nn.Module):
         # return illu_map
         return illu_fea, illu_map
 
+class GGCM(nn.Module):
+    def __init__(self,inp_channels , hidden_channels,out_channels):
+        super(GGCM , self).__init__()
+        self.conv = nn.Conv2d(inp_channels , hidden_channels , kernel_size=3,stride=1,padding=1)
+        self.avgpool = nn.AvgPool2d(kernel_size=3,padding=1)
+        self.mlp = nn.Linear(hidden_channels , out_channels)
+        self.activation = nn.Sigmoid()
+
+    def forward(self,x):
+        x = self.conv(x)
+        x = self.avgpool(x)
+        x = self.mlp(x)
+        x = self.activation(x)
+
+        return x
+
+class LGCM(nn.Module):
+    def __init__(self,inp_channels ,out_channels):
+        super(LGCM , self).__init__()
+        self.conv = nn.Conv2d(inp_channels , out_channels , kernel_size=3,stride=1,padding=1)
+        self.activation = nn.Sigmoid()
+
+    def forward(self,x):
+        x = self.conv(x)
+        x = self.activation(x)
+
+        return x
 
 ## Overlapped image patch embedding with 3x3 Conv
 class OverlapPatchEmbed(nn.Module):
@@ -479,11 +626,119 @@ class Upsample(nn.Module):
     def forward(self, x):
         return self.body(x)
 
+class BasicConv(nn.Module):
+    def __init__(self, in_channel, out_channel, kernel_size, stride, bias=True, norm=True, activation=True, transpose=False):
+        super(BasicConv, self).__init__()
+        if bias and norm:
+            bias = False
 
+        padding = kernel_size // 2
+        layers = list()
+        if transpose:
+            padding = kernel_size // 2 -1
+            layers.append(nn.ConvTranspose2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias))
+        else:
+            layers.append(
+                nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias))
+        if norm:
+            layers.append(nn.InstanceNorm2d(out_channel))
+        if activation:
+            layers.append(nn.GELU())
+        self.main = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.main(x)
+class RB(nn.Module):
+    def __init__(self, channels):
+        super(RB, self).__init__()
+        self.layer_1 = BasicConv(channels, channels, 3, 1)
+        self.layer_2 = BasicConv(channels, channels, 3, 1)
+        
+    def forward(self, x):
+        y = self.layer_1(x)
+        y = self.layer_2(y)
+        return y + x
+
+class Down_scale(nn.Module):
+    def __init__(self, in_channel):
+        super(Down_scale, self).__init__()
+        self.main = BasicConv(in_channel, in_channel*2, 3, 2)
+
+    def forward(self, x):
+        return self.main(x)
+
+class Up_scale(nn.Module):
+    def __init__(self, in_channel):
+        super(Up_scale, self).__init__()
+        self.main = BasicConv(in_channel, in_channel//2, kernel_size=4, activation=True, stride=2, transpose=True)
+
+    def forward(self, x):
+        return self.main(x)
+class c_net(nn.Module):
+
+    def __init__(self, d_hist, depth=[2, 2, 2]):
+        super(c_net, self).__init__()
+        
+        base_channel = 16
+        
+        # encoder
+        self.Encoder = nn.ModuleList([
+            BasicConv(base_channel, base_channel, 3, 1),
+            nn.Sequential(*[RB(base_channel) for _ in range(depth[0])]),
+            Down_scale(base_channel),
+            BasicConv(base_channel*2, base_channel*2, 3, 1),
+            nn.Sequential(*[RB(base_channel*2) for _ in range(depth[1])]),
+            Down_scale(base_channel*2),
+            BasicConv(base_channel*4, base_channel*4, 3, 1),
+            nn.Sequential(*[RB(base_channel*4) for _ in range(depth[2])]),
+        ])
+
+        self.conv_first = BasicConv(3, base_channel, 3, 1)
+        
+        # color hist
+        self.conv_color = BasicConv(base_channel*4, 256*3, 3, 1)
+        self.pooling = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(256, d_hist)
+        self.softmax = nn.Softmax(dim=2)
+
+        self.d_hist = d_hist
+        
+    def encoder(self, x):
+        shortcuts = []
+        for i in range(len(self.Encoder)):
+            x = self.Encoder[i](x)
+            if (i + 2) % 3 == 0:
+                shortcuts.append(x)
+        return x, shortcuts
+    
+    def color_forward(self, x):
+        x = self.conv_color(x)
+        x = self.pooling(x)
+        x = torch.reshape(x, (-1, 3, 256))
+        color_hist = self.softmax(self.fc(x))
+        return color_hist
+        
+    def forward(self, x):
+        
+        x = self.conv_first(x)
+        x, _ = self.encoder(x)
+        color_hist = self.color_forward(x)
+        return color_hist, x
+def compute_histogram(images, bins=256, value_range=(0, 1)):
+    # images: [B, C, H, W] 格式的 Tensor
+    B, C, H, W = images.shape
+    histograms = torch.zeros(B, C, bins)
+
+    for b in range(B):
+        for c in range(C):
+            hist, bin_edges = torch.histogram(images[b, c], bins=bins, range=value_range)
+            histograms[b, c] = hist
+
+    return histograms, bin_edges
 class DRSformer(nn.Module):
     def __init__(self,
                  inp_channels=3,
-                #  middle_channels=32,
+                 middle_channels=32,
                  out_channels=3,
                  dim=16,
                  num_blocks=[4, 6, 6, 8],
@@ -494,14 +749,13 @@ class DRSformer(nn.Module):
                  ):
 
         super(DRSformer, self).__init__()
-        self.enc_block1 = AttING(32,32)
-        self.enc_block2 = AttING(64,64)
-        # self.enc_block3 = AttING(6,16)
-        self.enc_block4 = AttING(64,64)
-        self.enc_block5 = AttING(32,32)
-        self.enc_block6 = AttING(32,32)
-        
-        # self.illumination_prior = Illumination_Estimator(middle_channels)
+        # self.enc_block1 = AttING(32,32)
+        # self.enc_block2 = AttING(64,64)
+        # self.enc_block3 = AttING(128,128)
+        # self.enc_block4 = AttING(64,64)
+        # self.enc_block5 = AttING(32,32)
+        # self.enc_block6 = AttING(32,32)
+        self.cnet = c_net(d_hist=256).cuda()
         self.discri = Discriminator(size=128, channel_multiplier=2,
                 narrow=0.5, device='cuda').cuda()
         pdcs = config_model(model = "carv4")
@@ -509,7 +763,6 @@ class DRSformer(nn.Module):
         # self.SAG = FullGenerator(128, 32, 8,
                                 #  channel_multiplier=2, narrow=0.25, device='cuda').cuda()
         self.SGEM = GlobalGenerator3(6, 3, 16, 1).cuda() ## structure-guided enhancement
-        # self.seg_model =  create_hrnet().cuda()
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
         
         self.encoder_level0 = subnet(dim)  ## We do not use MEFC for training Rain200L and SPA-Data
@@ -559,13 +812,7 @@ class DRSformer(nn.Module):
         # self.att_block_2 = Fuse_TransformerBlock(96,32)
         # self.att_block_3 = Fuse_TransformerBlock(192,32)
 
-    def forward(self, inp_img ):
-        # global seg_map
-        # _ , inp_prior = self.illumination_prior(inp_img)
-        # inp_img = inp_img*inp_prior+inp_img
-
-        # seg_model = create_hrnet().cuda()
-        # _ , seg_feature = self.seg_model(inp_img[:,0:3,:,:].cuda())
+    def forward(self, inp_img):
         
         inp_enc_level1 = self.patch_embed(inp_img)
         inp_enc_level0 = self.encoder_level0(inp_enc_level1) ## We do not use MEFC for training Rain200L and SPA-Data
@@ -574,12 +821,12 @@ class DRSformer(nn.Module):
 
         inp_enc_level2 = self.down1_2(out_enc_level1)
 
-        inp_enc_level2 = self.enc_block1(inp_enc_level2)#enc1
+        # inp_enc_level2 = self.enc_block1(inp_enc_level2)#enc1
         out_enc_level2 = self.encoder_level2(inp_enc_level2)
 
         inp_enc_level3 = self.down2_3(out_enc_level2)
 
-        inp_enc_level3 = self.enc_block2(inp_enc_level3)#enc2
+        # inp_enc_level3 = self.enc_block2(inp_enc_level3)#enc2
         out_enc_level3 = self.encoder_level3(inp_enc_level3)
 
         inp_enc_level4 = self.down3_4(out_enc_level3)
@@ -591,7 +838,7 @@ class DRSformer(nn.Module):
 
         inp_dec_level3 = self.reduce_chan_level3(inp_dec_level3)
         # inp_dec_level3 = self.att_block_1(inp_dec_level3,seg_feature[0])
-        inp_dec_level3 = self.enc_block4(inp_dec_level3)#enc4
+        # inp_dec_level3 = self.enc_block4(inp_dec_level3)#enc4
         out_dec_level3 = self.decoder_level3(inp_dec_level3)
 
         inp_dec_level2 = self.up3_2(out_dec_level3)
@@ -600,12 +847,12 @@ class DRSformer(nn.Module):
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
 
         # inp_dec_level2 = self.att_block_2(inp_dec_level2,seg_feature[1])
-        inp_dec_level2 = self.enc_block5(inp_dec_level2)#enc5
+        # inp_dec_level2 = self.enc_block5(inp_dec_level2)#enc5
         out_dec_level2 = self.decoder_level2(inp_dec_level2)
 
         inp_dec_level1 = self.up2_1(out_dec_level2)
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 1)
-        inp_dec_level1 = self.enc_block6(inp_dec_level1)#enc6
+        # inp_dec_level1 = self.enc_block6(inp_dec_level1)#enc6
         # inp_dec_level1 = self.att_block_3(inp_dec_level1,seg_feature[2])
         out_dec_level1 = self.decoder_level1(inp_dec_level1)
 
@@ -613,31 +860,23 @@ class DRSformer(nn.Module):
 
         out_dec_level1 = self.output(out_dec_level1) + inp_img
 
-        
-        
 
         y_hat_inter = out_dec_level1
-
-        # y_hat_inter = y_hat_inter + x
+        # y_hat_inter = y_hat_inter + x     
         y_hat_inter = torch.clamp(y_hat_inter, min=0.0, max=1.0)
+        hist , color_feature= self.cnet(y_hat_inter)
 
 
         # input_gray = inp_img[:, 0:1, :, :] * 0.299 + inp_img[:, 1:2, :, :] * 0.587 + inp_img[:, 2:3, :, :] * 0.114
-        # print('gray',input_gray.shape)
         # y_hat_sketch, latent = self.SAG(input_gray, return_latents=True)
         y_hat_sketch = self.Pidinet(inp_img)
-        # print('y_hat',y_hat_sketch.shape)
-        # print(inp_img.shape)
-
         input_variable = torch.cat([y_hat_inter, inp_img], dim=1)
-        # print(input_variable.shape)
-        y_hat = self.SGEM(input_variable, y_hat_sketch)
+        y_hat = self.SGEM(input_variable, y_hat_sketch, color_feature)
         y_hat = y_hat + y_hat_inter
         y_hat = torch.clamp(y_hat, min=0.0, max=1.0)
 
         fake_pred = self.discri(y_hat_sketch)
-        # print(y_hat.shape)
-        return y_hat , y_hat_inter , y_hat_sketch ,  fake_pred
+        return y_hat , y_hat_inter , y_hat_sketch ,  fake_pred ,hist
 
 if __name__ == '__main__':
     input = torch.rand(1, 3, 256, 256)

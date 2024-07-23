@@ -3,7 +3,11 @@ import torch.nn as nn
 import functools
 import torch.nn.functional as F
 import numpy as np
-# from basicsr.models.Fuse_Block import Fuse_TransformerBlock,Fuse_TransformerBlock_1
+from einops import rearrange
+import numbers
+from torch.nn import LayerNorm
+
+
 class SPADE(nn.Module):
     def __init__(self, param_free_norm_type, ks, norm_nc, label_nc):
         super().__init__()
@@ -124,18 +128,70 @@ def save_grad(grads, name):
         grads[name] = grad
     return hook
 #########################################################################################################
+class pce(nn.Module):
+    # parmid color embedding
 
+    def __init__(self):
+        super(pce, self).__init__()
+
+        self.cma_3 = cma(64, 32)
+        self.cma_2 = cma(32, 16)
+        self.cma_1 = cma(16, 16)
+        
+    def forward(self, c, shortcuts):
+        x_3_color, c_2 = self.cma_3(c, shortcuts[2])
+        x_2_color, c_1 = self.cma_2(c_2, shortcuts[1])
+        x_1_color, _ = self.cma_1(c_1, shortcuts[0])
+        
+        return [x_1_color, x_2_color, x_3_color]
+        
+class cma(nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super(cma, self).__init__()
+        self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, 1, 1), nn.InstanceNorm2d(out_channels), nn.LeakyReLU(0.2, inplace=True), nn.Upsample(scale_factor=2, mode='nearest'))
+        
+    def forward(self, c, x):
+        # x: gray image features 
+        # c: color features
+
+        # l1 distance
+        channels = c.shape[1]
+        sim_mat_l1 = -torch.abs(x-c) # <0  (b,c,h,w)
+        sim_mat_l1 = torch.sum(sim_mat_l1, dim=1, keepdim=True) # (b,1,h,w)
+        sim_mat_l1 = torch.sigmoid(sim_mat_l1) # (0, 0.5) (b,1,h,w)
+        sim_mat_l1 = sim_mat_l1.repeat(1,channels,1, 1)
+        sim_mat_l1 = 2*sim_mat_l1 # (0, 1)
+
+        # cos distance
+        sim_mat_cos = x*c # >0 (b,c,h,w)
+        sim_mat_cos = torch.sum(sim_mat_cos, dim=1, keepdim=True) # (b,1,h,w)       
+        sim_mat_cos = torch.tanh(sim_mat_cos) # (0, 1) (b,1,h,w)
+        sim_mat_cos = sim_mat_cos.repeat(1,channels,1, 1) # (0, 1)
+        
+        # similarity matrix
+        sim_mat = sim_mat_l1 * sim_mat_cos # (0, 1)
+        
+        # color embeding
+        x_color = x + c*sim_mat
+        
+        # color features upsample
+        c_up = self.conv(c)
+        
+        return x_color, c_up
 class GlobalGenerator3(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=64, n_blocks=9, padding_type='reflect'):
         assert (n_blocks >= 0)
         super(GlobalGenerator3, self).__init__()
         activation = nn.ReLU(True)
-
+        self.pce=pce()
         n_downsampling = 2
         model1 = [nn.Conv2d(input_nc, ngf, kernel_size=3, stride=1, padding=1), activation]
+
         ### downsample
         mult = 2 ** 0
         model2 = [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1), activation]
+
         mult = 2 ** 1
         model3 = [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1), activation]
 
@@ -189,9 +245,7 @@ class GlobalGenerator3(nn.Module):
         self.pixel_shuffle = nn.PixelShuffle(2)
         self.reset_params()
 
-        # self.att_block_1 = Fuse_TransformerBlock(48,32)
-        # self.att_block_2 = Fuse_TransformerBlock(96,16)
-        # self.att_block_3 = Fuse_TransformerBlock(192,32)
+
 
     @staticmethod
     def weight_init(m, init_type='kaiming', gain=0.02, scale=0.1):
@@ -217,11 +271,17 @@ class GlobalGenerator3(nn.Module):
         for _, m in enumerate(self.modules()):
             self.weight_init(m)
 
-    def forward(self, input, sketch):
+    def forward(self, input, sketch,color_feature):
+        
         feature1 = self.model1(input)
         feature2 = self.model2(feature1)
         feature3 = self.model3(feature2)
         feature4 = self.model4(feature3)
+        feature_shortcut = [feature1,feature2,feature3]
+        short_cut = self.pce(color_feature,feature_shortcut)
+        feature3 = short_cut[2]
+        feature2 = short_cut[1]
+        feature1 = short_cut[0]
         feature4 = torch.cat([feature4, feature3], dim=1)
 
         feature = self.deconv1(feature4)
@@ -233,8 +293,6 @@ class GlobalGenerator3(nn.Module):
         sketch2 = F.interpolate(sketch, size=(height, width))
 
 
-        # feature = self.att_block_1(feature,seg_feature[0])
-
         sketch_feature = self.conv1_1(sketch2)
         kernel_deblur = self.fac_deblur1(sketch_feature)
 
@@ -243,6 +301,7 @@ class GlobalGenerator3(nn.Module):
         feature_edge = self.deconv11(feature_edge)
         feature_edge = nn.ReLU(True)(feature_edge)
         feature = feature + feature_edge
+
         feature = torch.cat([feature, feature2], dim=1)
         ###################################
         feature = self.deconv2(feature)
@@ -252,9 +311,7 @@ class GlobalGenerator3(nn.Module):
         height = feature.shape[2]
         width = feature.shape[3]
         sketch2 = F.interpolate(sketch, size=(height, width))
-        # print(feature.shape)([4, 16, 128, 128])
-        # print(seg_feature[1].shape)([4, 96, 16, 16])
-        # feature = self.att_block_2(feature,seg_feature[1])
+
 
 
         sketch_feature = self.conv2_1(sketch2)
@@ -266,9 +323,7 @@ class GlobalGenerator3(nn.Module):
         feature_edge = nn.ReLU(True)(feature_edge)
         feature = feature + feature_edge
         feature = torch.cat([feature, feature1], dim=1)
-        # print(feature.shape)
-        # print(seg_feature[2].shape)
-        # feature = self.att_block_3(feature,seg_feature[2])
+
 
         return self.model_tail(feature)
 
