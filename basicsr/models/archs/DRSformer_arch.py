@@ -4,9 +4,10 @@ import torch.nn.functional as F
 from pdb import set_trace as stx
 import numbers
 from basicsr.models.SAG import Discriminator , FullGenerator
-from basicsr.models.SGEM import GlobalGenerator3
+from basicsr.models.SGEM import GlobalGenerator3 ,edge_fuse , pce
 # from hrseg.hrseg_model import create_hrnet
 # from basicsr.models.Fuse_Block import Fuse_TransformerBlock,Fuse_TransformerBlock_1
+from basicsr.models.muge import Mymodel
 from basicsr.pidinet_models.pidinet import PiDiNet
 from basicsr.pidinet_models.config import config_model
 import cv2
@@ -738,7 +739,6 @@ def compute_histogram(images, bins=256, value_range=(0, 1)):
 class DRSformer(nn.Module):
     def __init__(self,
                  inp_channels=3,
-                 middle_channels=32,
                  out_channels=3,
                  dim=16,
                  num_blocks=[4, 6, 6, 8],
@@ -755,14 +755,20 @@ class DRSformer(nn.Module):
         # self.enc_block4 = AttING(64,64)
         # self.enc_block5 = AttING(32,32)
         # self.enc_block6 = AttING(32,32)
-        self.cnet = c_net(d_hist=256).cuda()
+        # self.cnet = c_net(d_hist=256).cuda()
+        self.edge_fuse2 = edge_fuse(1,16)
+        self.edge_fuse1 = edge_fuse(0,16)
+        self.edge_fuse0 = edge_fuse(0,16)
+        self.edge_fuse3 = edge_fuse(0,16)
+        self.edge_fuse4 = edge_fuse(1,16)
+        self.edge_fuse5 = edge_fuse(2,16)
         self.discri = Discriminator(size=128, channel_multiplier=2,
                 narrow=0.5, device='cuda').cuda()
-        pdcs = config_model(model = "carv4")
-        self.Pidinet = PiDiNet(60,pdcs,dil=24,sa=True)
-        # self.SAG = FullGenerator(128, 32, 8,
-                                #  channel_multiplier=2, narrow=0.25, device='cuda').cuda()
-        self.SGEM = GlobalGenerator3(6, 3, 16, 1).cuda() ## structure-guided enhancement
+        # pdcs = config_model(model = "carv4")
+        # self.Pidinet = PiDiNet(60,pdcs,dil=24,sa=True)
+        self.SAG = FullGenerator(128, 32, 8,
+                                 channel_multiplier=2, narrow=0.25, device='cuda').cuda()
+        # self.SGEM = GlobalGenerator3(6, 3, 16, 1).cuda() ## structure-guided enhancement
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
         
         self.encoder_level0 = subnet(dim)  ## We do not use MEFC for training Rain200L and SPA-Data
@@ -807,37 +813,37 @@ class DRSformer(nn.Module):
         self.refinement = subnet(dim=int(dim*2**1)) ## We do not use MEFC for training Rain200L and SPA-Data
 
         self.output = nn.Conv2d(int(dim * 2 ** 1), out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
-
-        # self.att_block_1 = Fuse_TransformerBlock(48,64)
-        # self.att_block_2 = Fuse_TransformerBlock(96,32)
-        # self.att_block_3 = Fuse_TransformerBlock(192,32)
+        self.pce = pce()
 
     def forward(self, inp_img):
-        
+        # y_hat_sketch = self.Pidinet(inp_img)
+        # hist , color_feature= self.cnet(inp_img)
+        input_gray = inp_img[:, 0:1, :, :] * 0.299 + inp_img[:, 1:2, :, :] * 0.587 + inp_img[:, 2:3, :, :] * 0.114
+        y_hat_sketch, latent = self.SAG(input_gray, return_latents=True)
         inp_enc_level1 = self.patch_embed(inp_img)
         inp_enc_level0 = self.encoder_level0(inp_enc_level1) ## We do not use MEFC for training Rain200L and SPA-Data
         out_enc_level1 = self.encoder_level1(inp_enc_level0)  
         
 
         inp_enc_level2 = self.down1_2(out_enc_level1)
-
+        inp_enc_level2 = self.edge_fuse3(inp_enc_level2,y_hat_sketch)
         # inp_enc_level2 = self.enc_block1(inp_enc_level2)#enc1
         out_enc_level2 = self.encoder_level2(inp_enc_level2)
 
         inp_enc_level3 = self.down2_3(out_enc_level2)
-
+        inp_enc_level3 = self.edge_fuse4(inp_enc_level3,y_hat_sketch)
         # inp_enc_level3 = self.enc_block2(inp_enc_level3)#enc2
         out_enc_level3 = self.encoder_level3(inp_enc_level3)
 
         inp_enc_level4 = self.down3_4(out_enc_level3)
-        # inp_enc_level4 = self.enc_block3(inp_enc_level4)#enc3
+        inp_enc_level4 = self.edge_fuse5(inp_enc_level4,y_hat_sketch)
         latent = self.latent(inp_enc_level4)
 
         inp_dec_level3 = self.up4_3(latent)
         inp_dec_level3 = torch.cat([inp_dec_level3, out_enc_level3], 1)
 
         inp_dec_level3 = self.reduce_chan_level3(inp_dec_level3)
-        # inp_dec_level3 = self.att_block_1(inp_dec_level3,seg_feature[0])
+        inp_dec_level3 = self.edge_fuse2(inp_dec_level3,y_hat_sketch)
         # inp_dec_level3 = self.enc_block4(inp_dec_level3)#enc4
         out_dec_level3 = self.decoder_level3(inp_dec_level3)
 
@@ -846,14 +852,14 @@ class DRSformer(nn.Module):
 
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
 
-        # inp_dec_level2 = self.att_block_2(inp_dec_level2,seg_feature[1])
+        inp_dec_level3 = self.edge_fuse1(inp_dec_level2,y_hat_sketch)
         # inp_dec_level2 = self.enc_block5(inp_dec_level2)#enc5
         out_dec_level2 = self.decoder_level2(inp_dec_level2)
 
         inp_dec_level1 = self.up2_1(out_dec_level2)
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 1)
         # inp_dec_level1 = self.enc_block6(inp_dec_level1)#enc6
-        # inp_dec_level1 = self.att_block_3(inp_dec_level1,seg_feature[2])
+        inp_dec_level3 = self.edge_fuse0(inp_dec_level1,y_hat_sketch)        
         out_dec_level1 = self.decoder_level1(inp_dec_level1)
 
         out_dec_level1 = self.refinement(out_dec_level1) ## We do not use MEFC for training Rain200L and SPA-Data
@@ -862,21 +868,20 @@ class DRSformer(nn.Module):
 
 
         y_hat_inter = out_dec_level1
-        # y_hat_inter = y_hat_inter + x     
-        y_hat_inter = torch.clamp(y_hat_inter, min=0.0, max=1.0)
-        hist , color_feature= self.cnet(y_hat_inter)
+        y_hat = torch.clamp(y_hat_inter, min=0.0, max=1.0)
+        # hist , color_feature= self.cnet(y_hat_inter)
 
 
         # input_gray = inp_img[:, 0:1, :, :] * 0.299 + inp_img[:, 1:2, :, :] * 0.587 + inp_img[:, 2:3, :, :] * 0.114
         # y_hat_sketch, latent = self.SAG(input_gray, return_latents=True)
-        y_hat_sketch = self.Pidinet(inp_img)
-        input_variable = torch.cat([y_hat_inter, inp_img], dim=1)
-        y_hat = self.SGEM(input_variable, y_hat_sketch, color_feature)
-        y_hat = y_hat + y_hat_inter
-        y_hat = torch.clamp(y_hat, min=0.0, max=1.0)
+        
+        # input_variable = torch.cat([y_hat_inter, inp_img], dim=1)
+        # y_hat = self.SGEM(input_variable, y_hat_sketch, color_feature)
+        # y_hat = y_hat + y_hat_inter
+        # y_hat = torch.clamp(y_hat, min=0.0, max=1.0)
 
         fake_pred = self.discri(y_hat_sketch)
-        return y_hat , y_hat_inter , y_hat_sketch ,  fake_pred ,hist
+        return y_hat , y_hat_inter , y_hat_sketch ,  fake_pred 
 
 if __name__ == '__main__':
     input = torch.rand(1, 3, 256, 256)

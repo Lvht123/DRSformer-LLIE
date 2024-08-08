@@ -12,7 +12,13 @@ import torch.nn.functional as F
 
 from .ops import Conv2d
 from .config import config_model, config_model_converted
-
+from einops import rearrange
+import warnings
+from torch.nn.init import _calculate_fan_in_and_fan_out
+from .SS2D_arch import SS2D
+from .IFA_arch import IFA
+from basicsr.models.transformer import BasicUformerLayer, Downsample, InputProj, OutputProj
+from basicsr.models.SAG import ConvLayer,ConvLayer2
 class CSAM(nn.Module):
     """
     Compact Spatial Attention Module
@@ -34,45 +40,103 @@ class CSAM(nn.Module):
         y = self.sigmoid(y)
 
         return x * y
-# class CSAM(nn.Module):
-#     def __init__(self, channels):
-#         super(CSAM, self).__init__()
-#         self.project_in = nn.Conv2d(channels, channels * 2, kernel_size=1)
+    
+class PreNorm(nn.Module):
+    """
+    预归一化模块，通常用于Transformer架构中。
 
-#         self.dwconv3x3 = nn.Conv2d(channels * 2, channels * 2, kernel_size=3, stride=1, padding=1, groups=channels * 2)
-#         self.dwconv5x5 = nn.Conv2d(channels * 2, channels * 2, kernel_size=5, stride=1, padding=2, groups=channels * 2)
-#         self.relu3 = nn.ReLU()
-#         self.relu5 = nn.ReLU()
+    在执行具体的功能（如自注意力或前馈网络）之前先进行层归一化，
+    这有助于稳定训练过程并提高模型性能。
 
-#         self.dwconv3x3_1 = nn.Conv2d(channels * 2, channels, kernel_size=3, stride=1, padding=1, groups=channels )
-#         self.dwconv5x5_1 = nn.Conv2d(channels * 2, channels, kernel_size=5, stride=1, padding=2, groups=channels )
+    属性:
+        dim: 输入特征的维度。
+        fn: 要在归一化后应用的模块或函数。
+    """
 
-#         self.relu3_1 = nn.ReLU()
-#         self.relu5_1 = nn.ReLU()
-#         self.project_out = nn.Conv2d(channels * 2, channels, kernel_size=1)
+    def __init__(self, dim, fn):
+        """
+        初始化预归一化模块。
 
-#     def forward(self, x):
-#         x = self.project_in(x)
-#         x1_3, x2_3 = self.relu3(self.dwconv3x3(x)).chunk(2, dim=1)
-#         x1_5, x2_5 = self.relu5(self.dwconv5x5(x)).chunk(2, dim=1)
+        参数:
+            dim (int): 输入特征的维度，也是层归一化的维度。
+            fn (callable): 在归一化之后应用的模块或函数。
+        """
+        super().__init__()  # 初始化基类 nn.Module
+        self.fn = fn  # 存储要应用的函数或模块
+        self.norm = nn.LayerNorm(dim)  # 创建层归一化模块
 
-#         x1 = torch.cat([x1_3, x1_5], dim=1)
-#         x2 = torch.cat([x2_3, x2_5], dim=1)
+    def forward(self, x, *args, **kwargs):
+        """
+        对输入数据进行前向传播。
 
-#         x1 = self.relu3_1(self.dwconv3x3_1(x1))
-#         x2 = self.relu5_1(self.dwconv5x5_1(x2))
+        参数:
+            x (Tensor): 输入到模块的数据。
+            *args, **kwargs: 传递给self.fn的额外参数。
 
-#         x = torch.cat([x1, x2], dim=1)
+        返回:
+            Tensor: self.fn的输出，其输入是归一化后的x。
+        """
+        x = self.norm(x)  # 首先对输入x进行层归一化
+        return self.fn(x, *args, **kwargs)  # 将归一化的数据传递给self.fn，并执行
+class FeedForward(nn.Module):
+    """
+    实现一个基于卷积的前馈网络模块，通常用于视觉Transformer结构中。
+    这个模块使用1x1卷积扩展特征维度，然后通过3x3卷积在这个扩展的维度上进行处理，最后使用1x1卷积将特征维度降回原来的大小。
 
-#         x = self.project_out(x)
+    参数:
+        dim (int): 输入和输出特征的维度。
+        mult (int): 特征维度扩展的倍数，默认为4。
+    """
+    def __init__(self, dim, mult=4):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(dim, dim * mult, 1, 1, bias=False),  # 使用1x1卷积提升特征维度
+            GELU(),  # 使用GELU激活函数增加非线性
+            nn.Conv2d(dim * mult, dim * mult, 3, 1, 1, bias=False, groups=dim * mult),  # 分组卷积处理，维持特征维度不变，增加特征的局部相关性
+            GELU(),  # 再次使用GELU激活函数增加非线性
+            nn.Conv2d(dim * mult, dim, 1, 1, bias=False),  # 使用1x1卷积降低特征维度回到原始大小
+        )
 
-#         return x
-class CDCM(nn.Module):
+    def forward(self, x):
+        """
+        前向传播函数。
+        
+        参数:
+        x (tensor): 输入特征，形状为 [b, h, w, c]，其中b是批次大小，h和w是空间维度，c是通道数。
+
+        返回:
+        out (tensor): 输出特征，形状与输入相同。
+        """
+        # 由于PyTorch的卷积期望的输入形状为[b, c, h, w]，需要将通道数从最后一个维度移到第二个维度
+        out = self.net(x.permute(0, 3, 1, 2).contiguous())  # 调整输入张量的维度
+        return out.permute(0, 2, 3, 1)  # 将输出张量的维度调整回[b, h, w, c]格式    
+class GELU(nn.Module):
+    """
+    GELU激活函数的封装。
+
+    GELU (Gaussian Error Linear Unit) 是一种非线性激活函数，
+    它被广泛用于自然语言处理和深度学习中的其他领域。
+    这个函数结合了ReLU和正态分布的性质。
+    """
+
+    def forward(self, x):
+        """
+        在输入数据上应用GELU激活函数。
+
+        参数:
+            x (Tensor): 输入到激活函数的数据。
+
+        返回:
+            Tensor: 经过GELU激活函数处理后的数据。
+        """
+        return F.gelu(x)  # 使用PyTorch的函数实现GELU激活
+    
+class CDCM1(nn.Module):
     """
     Compact Dilation Convolution based Module
     """
     def __init__(self, in_channels, out_channels):
-        super(CDCM, self).__init__()
+        super(CDCM1, self).__init__()
 
         self.relu1 = nn.ReLU()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
@@ -90,7 +154,93 @@ class CDCM(nn.Module):
         x3 = self.conv2_3(x)
         x4 = self.conv2_4(x)
         return x1 + x2 + x3 + x4
+class CDCM2(nn.Module):
+    """
+    Compact Dilation Convolution based Module
+    """
+    def __init__(self, in_channels, out_channels):
+        super(CDCM2, self).__init__()
 
+        self.relu1 = nn.ReLU()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0)
+        self.conv2_1 = nn.Conv2d(out_channels, out_channels, kernel_size=3, dilation=5, padding=5, bias=False)
+        self.conv2_2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, dilation=7, padding=7, bias=False)
+        self.conv2_3 = nn.Conv2d(out_channels, out_channels, kernel_size=3, dilation=1, padding=1, bias=False)
+        self.conv2_4 = nn.Conv2d(out_channels, out_channels, kernel_size=3, dilation=3, padding=3, bias=False)
+        nn.init.constant_(self.conv1.bias, 0)
+        
+    def forward(self, x):
+        x = self.relu1(x)
+        x = self.conv1(x)
+        x1 = self.conv2_1(x)
+        x2 = self.conv2_2(x)
+        x3 = self.conv2_3(x)
+        x4 = self.conv2_4(x)
+        return x1 + x2 + x3 + x4
+# class CDCM(nn.Module):
+#     """
+#     Compact Dilation Convolution based Module
+#     """
+#     def __init__(self,in_channel, out_channel, img_size=128,
+#                  kernel_size=3, depth=2, num_head=2, win_size=8, mlp_ratio=4,
+#                  qkv_bias=True, qk_scale=None,
+#                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
+#                  norm_layer=nn.LayerNorm, patch_norm=True,
+#                  use_checkpoint=False, token_projection='linear', token_mlp='leff', shift_flag=True,
+#                  downsample=False, device='cpu'):
+#         super(CDCM, self).__init__()
+#         self.conv0 = ConvLayer(in_channel, out_channel, kernel_size, downsample=downsample, device=device)
+#         # self.relu1 = nn.ReLU()
+#         # self.conv1 = nn.Conv2d(in_channel, out_channel, kernel_size=1, padding=0)
+#         # self.conv2_1 = nn.Conv2d(out_channel, out_channel, kernel_size=3, dilation=5, padding=5, bias=False)
+#         # self.conv2_2 = nn.Conv2d(out_channel, out_channel, kernel_size=3, dilation=7, padding=7, bias=False)
+#         # self.conv2_3 = nn.Conv2d(out_channel, out_channel, kernel_size=3, dilation=9, padding=9, bias=False)
+#         # self.conv2_4 = nn.Conv2d(out_channel, out_channel, kernel_size=3, dilation=11, padding=11, bias=False)
+#         # nn.init.constant_(self.conv1.bias, 0)
+#         self.transformer0 = BasicUformerLayer(dim=in_channel,
+#                                               output_dim=in_channel,
+#                                               input_resolution=(img_size,
+#                                                                 img_size),
+#                                               depth=depth,
+#                                               num_heads=num_head,
+#                                               win_size=win_size,
+#                                               mlp_ratio=mlp_ratio,
+#                                               qkv_bias=qkv_bias, qk_scale=qk_scale,
+#                                               drop=drop_rate, attn_drop=attn_drop_rate,
+#                                               norm_layer=norm_layer,
+#                                               use_checkpoint=use_checkpoint,
+#                                               token_projection=token_projection, token_mlp=token_mlp,
+#                                               shift_flag=shift_flag)
+
+#         ####
+#         self.input_proj0 = InputProj(in_channel=in_channel, out_channel=in_channel, kernel_size=3, stride=1, act_layer=nn.LeakyReLU)
+#         self.output_proj0 = OutputProj(in_channel=in_channel, out_channel=out_channel, kernel_size=3, stride=1)
+#         # self.input_proj1 = InputProj(in_channel=in_channel, out_channel=in_channel, kernel_size=3, stride=1, act_layer=nn.LeakyReLU)
+#         # self.output_proj1 = OutputProj(in_channel=in_channel, out_channel=out_channel, kernel_size=3, stride=1)
+#         # self.fusion0 = ConvLayer(out_channel * 3, out_channel, 1, device=device)
+#         # self.downsample0 = Downsample(in_channel, in_channel)
+        
+#     def forward(self, input):
+#         # x = self.relu1(input)
+#         # x = self.conv1(x)
+#         short_range = self.conv0(input)
+#         # x2 = self.conv2_2(x)
+#         # x3 = self.conv2_3(x)
+#         # x4 = self.conv2_4(x)
+#         # short_range = self.conv0(input)
+#         # print(input.shape)
+#         input_long = self.input_proj0(input)
+#         # print(input_long1.shape)
+#         long_range = self.transformer0(input_long)
+#         # long_range1 = self.conv2_3(input_long1)
+#         long_range = self.output_proj0(long_range)
+#         # input_long2 = self.input_proj1(input)
+#         # long_range = self.transformer0(input_long2)
+#         # long_range2 = self.conv2_4(input_long2)
+#         # long_range2 = self.output_proj1(long_range2)
+        
+#         # f0 = self.fusion0(torch.cat([short_range1, long_range1,long_range2], dim=1))
+#         return short_range + long_range
 
 class MapReduce(nn.Module):
     """
@@ -215,10 +365,22 @@ class PiDiNet(nn.Module):
         if self.sa and self.dil is not None:
             self.attentions = nn.ModuleList()
             self.dilations = nn.ModuleList()
-            for i in range(4):
-                self.dilations.append(CDCM(self.fuseplanes[i], self.dil))
-                self.attentions.append(CSAM(self.dil))
-                self.conv_reduces.append(MapReduce(self.dil))
+            # for i in range(4):
+            #     self.dilations.append(CDCM(self.fuseplanes[i], self.dil))
+            #     self.attentions.append(CSAM(self.dil))
+            #     self.conv_reduces.append(MapReduce(self.dil))
+            self.dilations.append(CDCM1(self.fuseplanes[0], self.dil))
+            self.attentions.append(CSAM(self.dil))
+            self.conv_reduces.append(MapReduce(self.dil))
+            self.dilations.append(CDCM1(self.fuseplanes[1], self.dil))
+            self.attentions.append(CSAM(self.dil))
+            self.conv_reduces.append(MapReduce(self.dil))
+            self.dilations.append(CDCM2(self.fuseplanes[2], self.dil))
+            self.attentions.append(CSAM(self.dil))
+            self.conv_reduces.append(MapReduce(self.dil))
+            self.dilations.append(CDCM2(self.fuseplanes[3], self.dil))
+            self.attentions.append(CSAM(self.dil))
+            self.conv_reduces.append(MapReduce(self.dil))
         elif self.sa:
             self.attentions = nn.ModuleList()
             for i in range(4):
@@ -227,7 +389,15 @@ class PiDiNet(nn.Module):
         elif self.dil is not None:
             self.dilations = nn.ModuleList()
             for i in range(4):
-                self.dilations.append(CDCM(self.fuseplanes[i], self.dil))
+                # self.dilations.append(CDCM(self.fuseplanes[i], self.dil))
+                # self.conv_reduces.append(MapReduce(self.dil))
+                self.dilations.append(CDCM1(self.fuseplanes[0], self.dil))
+                self.conv_reduces.append(MapReduce(self.dil))
+                self.dilations.append(CDCM1(self.fuseplanes[1], self.dil))
+                self.conv_reduces.append(MapReduce(self.dil))
+                self.dilations.append(CDCM2(self.fuseplanes[2], self.dil))
+                self.conv_reduces.append(MapReduce(self.dil))
+                self.dilations.append(CDCM2(self.fuseplanes[3], self.dil))
                 self.conv_reduces.append(MapReduce(self.dil))
         else:
             for i in range(4):

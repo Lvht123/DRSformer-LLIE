@@ -1,5 +1,5 @@
 # general settings
-name: enc_syn_pidinet_drsformer
+name: histloss
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1

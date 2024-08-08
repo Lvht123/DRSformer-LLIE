@@ -7,7 +7,6 @@ from einops import rearrange
 import numbers
 from torch.nn import LayerNorm
 
-
 class SPADE(nn.Module):
     def __init__(self, param_free_norm_type, ks, norm_nc, label_nc):
         super().__init__()
@@ -179,6 +178,50 @@ class cma(nn.Module):
         c_up = self.conv(c)
         
         return x_color, c_up
+    
+class edge_fuse(nn.Module):
+    def __init__(self, n_downsampling ,ngf=64,  padding_type='reflect'):
+        super(edge_fuse, self).__init__()
+        # n_downsampling = 2
+        ks_2d = 3
+        self.ks_2d = ks_2d
+        mult = 2 ** (n_downsampling - 0)
+        self.deconv1 = nn.Conv2d(ngf * mult * 2, int(ngf * mult / 2)*4, kernel_size=3, stride=1, padding=1)
+        self.deconv11 = nn.Conv2d(int(ngf * mult / 2), int(ngf * mult / 2), kernel_size=3, stride=1, padding=1)
+        ch3 = int(ngf * mult / 2)
+        ks = 3
+        self.conv1_1 = conv(1, ch3, kernel_size=ks, stride=1)
+        self.fac_deblur1 = nn.Sequential(
+            conv(ch3, ch3, kernel_size=ks),
+            resnet_block(ch3, kernel_size=ks),
+            conv(ch3, ch3 * ks_2d ** 2, kernel_size=1))
+        self.norm1 = SPADE('instance', 3, int(ngf * mult / 2), 1)
+        self.con111 = nn.Conv2d(int(ngf*mult/2) , int(ngf*mult*2) , kernel_size=3,stride = 2 , padding = 1)
+        ###########################################
+        self.pixel_shuffle = nn.PixelShuffle(2)
+    def forward(self, input , sketch):
+        # print(input.shape)
+        feature = self.deconv1(input)
+        feature = self.pixel_shuffle(feature)
+        feature = nn.ReLU(True)(feature)
+        height = feature.shape[2]
+        width = feature.shape[3]
+        sketch2 = F.interpolate(sketch, size=(height, width))
+        sketch_feature = self.conv1_1(sketch2)
+        kernel_deblur = self.fac_deblur1(sketch_feature)
+        # print(feature.shape)
+        # print(kernel_deblur.shape)
+        feature_edge = kernel2d_conv(feature, kernel_deblur, self.ks_2d)
+        feature_edge = self.norm1(feature_edge, sketch)
+        feature_edge = self.deconv11(feature_edge)
+        feature_edge = nn.ReLU(True)(feature_edge)
+        feature = feature + feature_edge
+        feature = self.con111(feature)
+        # print(feature.shape)
+        return feature
+
+
+
 class GlobalGenerator3(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=64, n_blocks=9, padding_type='reflect'):
         assert (n_blocks >= 0)
@@ -295,7 +338,6 @@ class GlobalGenerator3(nn.Module):
 
         sketch_feature = self.conv1_1(sketch2)
         kernel_deblur = self.fac_deblur1(sketch_feature)
-
         feature_edge = kernel2d_conv(feature, kernel_deblur, self.ks_2d)
         feature_edge = self.norm1(feature_edge, sketch)
         feature_edge = self.deconv11(feature_edge)

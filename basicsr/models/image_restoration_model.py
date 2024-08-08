@@ -248,10 +248,7 @@ class ImageCleanModel(BaseModel):
 
     def optimize_parameters(self, current_iter):
         self.optimizer_g.zero_grad()
-        hist_gt , _ = compute_histogram(self.gt)
-        hist_gt = hist_gt.to(self.device)
-        # _ , seg_feature = self.seg_model(self.lq[:,0:3,:,:].cuda())
-        preds , preds_inter , preds_sketch  ,fake_pred ,hist_lq = self.net_g(self.lq)
+        preds , preds_inter , preds_sketch  ,fake_pred  = self.net_g(self.lq)
         if not isinstance(preds, list):
             preds = [preds]
         sketch = get_sketch(self.gt)
@@ -273,15 +270,12 @@ class ImageCleanModel(BaseModel):
         for pred in preds:
             rec_loss = self.mse_loss(self.gt,pred)*10 + self.mse_loss(self.gt,preds_inter)
             lpips_loss = self.lpips_loss(self.gt,pred) + self.lpips_loss(self.gt,preds_inter)
-            # print('pred', pred.shape)
-            # print('preds', preds.shape)
             edge_loss = cross_entropy_loss_RCF(preds_sketch,sketch,1.1)*5
             discri_loss = F.softplus(-fake_pred).mean()
             cr_loss = 0.1*self.CR_loss(pred,self.gt,self.lq)
-            color_loss = 0.01*self.cri_pix(hist_gt,hist_lq)
             # l_pix = 10*self.cri_pix(pred, self.gt) + self.cri_pix(preds_inter,self.gt)
 
-        l_pix = rec_loss + 0.8*lpips_loss + discri_loss + edge_loss + cr_loss + color_loss
+        l_pix = rec_loss + 0.8*lpips_loss + discri_loss + edge_loss + cr_loss 
         loss_dict['l_pix'] = l_pix
 
         l_pix.backward()
@@ -317,14 +311,14 @@ class ImageCleanModel(BaseModel):
         if hasattr(self, 'net_g_ema'):
             self.net_g_ema.eval()
             with torch.no_grad():
-                preds , preds_inter , preds_sketch  ,fake_pred ,hist = self.net_g_ema(img)
+                preds , preds_inter , preds_sketch  ,fake_pred  = self.net_g_ema(img)
             if isinstance(preds, list):
                 pred = preds[-1]
             self.output = preds
         else:
             self.net_g.eval()
             with torch.no_grad():
-                preds , preds_inter , preds_sketch  ,fake_pred ,hist = self.net_g(img)
+                preds , preds_inter , preds_sketch  ,fake_pred  = self.net_g(img)
             if isinstance(preds, list):
                 pred = preds[-1]
             self.output = preds

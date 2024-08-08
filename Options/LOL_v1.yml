@@ -11,7 +11,7 @@ datasets:
     name: TrainSet
     type: Dataset_PairedImage
     dataroot_gt: /media/lht/disk/dataset/LOLv1/Train/target
-    dataroot_lq:/media/lht/disk/dataset/LOLv1/Train/input
+    dataroot_lq: /media/lht/disk/dataset/LOLv1/Train/input
     geometric_augs: true
 
     filename_tmpl: '{}'

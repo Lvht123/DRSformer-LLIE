@@ -154,9 +154,6 @@ class EqualLinear(nn.Module):
 
     def forward(self, input):
         if self.activation:
-            # print(input.shape)
-            # print(self.weight.shape)
-            # print(torch.tensor(self.scale).shape)
             out = F.linear(input, self.weight * self.scale)
             out = fused_leaky_relu(out, self.bias * self.lr_mul, device=self.device)
 
@@ -1062,9 +1059,9 @@ class FullGenerator(nn.Module):
                     inputs = F.interpolate(inputs, size=(128, 128))
 
         inputs = inputs.view(inputs.shape[0], -1)
-
+        # print(inputs.shape)
         outs = self.final_linear(inputs)
-
+        # print(outs.shape)
         noise = list(itertools.chain.from_iterable(itertools.repeat(x, 2) for x in noise))[::-1]
         noise[-1] = None
         noise[-2] = None
